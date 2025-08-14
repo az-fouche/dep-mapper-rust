@@ -103,3 +103,34 @@ cargo test
 cargo clippy
 cargo fmt
 ```
+
+## Implementation Notes
+
+### Current Status (Phase 1)
+- ✅ Basic import extraction implemented (`src/imports.rs`)
+- ✅ Comprehensive unit tests covering all import types
+- ✅ CLI interface for single file analysis (`src/main.rs`)
+
+### Import Parser Features
+- **Supported**: `import module`, `from module import name`, `from module import *`
+- **Supported**: Nested module paths (`from package.submodule.deep import function`)
+- **Supported**: Multiple imports (`import os, sys, json`)
+- **Not implemented**: Import aliases (`import numpy as np`) - parser extracts original names only
+- **Design decision**: Aliases ignored for architectural analysis (original module names more relevant)
+
+### Test Coverage
+Located in `src/imports.rs` following Rust conventions with `#[cfg(test)]`:
+- Simple imports, multiple imports, from imports, star imports
+- Mixed import scenarios, nested modules, error handling
+- Edge cases: empty files, invalid syntax, no imports
+
+### Next Development Priorities
+1. **Directory traversal**: Extend from single file to recursive directory scanning
+2. **Module catalog**: Build comprehensive inventory of all Python files and their modules
+3. **Dependency graph**: Connect imports to actual module definitions
+4. **Error handling**: Robust handling of malformed Python files
+
+### Architecture Decisions
+- **Import aliases**: Intentionally extract original module names rather than aliases
+- **Static analysis only**: No dynamic import resolution (stays within project scope)
+- **AST-based parsing**: Using `rustpython-parser` for reliable Python syntax handling
