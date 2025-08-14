@@ -1,9 +1,10 @@
 use rustpython_parser::ast::{Stmt, Mod};
 use rustpython_parser::{parse, Mode};
 use anyhow::Result;
+use serde::{Serialize, Deserialize};
 
 /// Represents different types of Python import statements.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ImportInfo {
     Simple(String),
     From { module: String, name: String },
