@@ -31,3 +31,5 @@ cargo clippy && cargo fmt
 - **Function-first**: Use simple functions over complex patterns/structs
 - **Question redundancy**: When you see data duplication (same info in multiple places), eliminate one source rather than sync them
 - **Fail fast on invariant violations**: Return errors for invalid states instead of silently creating inconsistent data
+- **Use containers for convoluted return types**: When functions return complex tuples like `(Vec<ImportInfo>, DependencyGraph, ModuleIdentifier)`, create a simple container struct instead
+- **Don't add new types if existing ones suffice**: Before creating a new enum or struct, check if an existing type already captures what you need. Often the core data is already modeled elsewhere
