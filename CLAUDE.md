@@ -134,3 +134,30 @@ Located in `src/imports.rs` following Rust conventions with `#[cfg(test)]`:
 - **Import aliases**: Intentionally extract original module names rather than aliases
 - **Static analysis only**: No dynamic import resolution (stays within project scope)
 - **AST-based parsing**: Using `rustpython-parser` for reliable Python syntax handling
+
+## Coding Style & Preferences
+
+### Design Philosophy
+
+- **YAGNI (You Aren't Gonna Need It)**: Avoid over-engineering and unnecessary complexity
+- **Simplicity over patterns**: Use simple functions instead of design patterns when they don't add value
+- **Prefer composition over inheritance**: Keep code flat and readable
+
+### Rust-Specific Guidelines
+
+- **Avoid unnecessary structs**: If a struct only holds state without behavior, consider using simple functions with parameters
+- **Question visitor patterns**: Only use when you actually need nested traversal or complex state management
+- **Function-first approach**: Start with simple functions, add structs/traits only when complexity demands it
+- **Internal vs External APIs**: Don't export internal implementation details - keep complex patterns internal if needed
+
+### Refactoring Principles
+
+- **Remove visitor pattern when**: Only processing top-level items without nested traversal
+- **Replace with functions when**: The "visitor" is just a data container passed between methods
+- **Example**: `ImportVisitor` → `process_stmt()` + `process_body()` functions with `&mut Vec` parameter
+
+### Code Review Mindset
+
+- Question whether patterns are actually needed for the current use case
+- Prefer readable, straightforward code over "textbook" patterns
+- Consider future complexity vs. current simplicity - optimize for current needs first
