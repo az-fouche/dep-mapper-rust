@@ -16,7 +16,8 @@ cargo clippy && cargo fmt
 
 ## Current Status
 - ✅ Import extraction (`src/imports.rs`) with tests
-- ✅ Single file CLI (`src/main.rs`)
+- ✅ Dependency graph (`src/graph.rs`) with ModuleIdentifier nodes
+- ✅ Single file CLI (`src/main.rs`) and integration tests
 - **Next**: Directory traversal → Module catalog → Dependency graph
 
 ## Parser Design
@@ -28,3 +29,5 @@ cargo clippy && cargo fmt
 
 - **YAGNI**: Avoid over-engineering
 - **Function-first**: Use simple functions over complex patterns/structs
+- **Question redundancy**: When you see data duplication (same info in multiple places), eliminate one source rather than sync them
+- **Fail fast on invariant violations**: Return errors for invalid states instead of silently creating inconsistent data
