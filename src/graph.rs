@@ -118,25 +118,23 @@ impl DependencyGraph {
         modules.sort_by(|a, b| a.canonical_path.cmp(&b.canonical_path));
         
         for module in modules {
-            let prefix = match module.origin {
-                crate::imports::ModuleOrigin::Internal => "I::",
-                crate::imports::ModuleOrigin::External => "E::",
-                crate::imports::ModuleOrigin::Builtin => "B::",
-            };
+            // Only show internal modules as main nodes
+            if module.origin != crate::imports::ModuleOrigin::Internal {
+                continue;
+            }
             
             let dependencies = self.get_dependencies(module);
             if !dependencies.is_empty() {
                 let dep_list: Vec<String> = dependencies.iter().map(|dep| {
-                    let dep_prefix = match dep.origin {
-                        crate::imports::ModuleOrigin::Internal => "I::",
-                        crate::imports::ModuleOrigin::External => "E::",
-                        crate::imports::ModuleOrigin::Builtin => "B::",
-                    };
-                    format!("{}{}", dep_prefix, dep.canonical_path)
+                    match dep.origin {
+                        crate::imports::ModuleOrigin::Internal => format!("I::{}", dep.canonical_path),
+                        crate::imports::ModuleOrigin::External => format!("E::{}", dep.canonical_path),
+                        crate::imports::ModuleOrigin::Builtin => format!("B::{}", dep.canonical_path),
+                    }
                 }).collect();
-                result.push_str(&format!("{}{} -> [{}]\n", prefix, module.canonical_path, dep_list.join(", ")));
+                result.push_str(&format!("{} -> [{}]\n", module.canonical_path, dep_list.join(", ")));
             } else {
-                result.push_str(&format!("{}{}\n", prefix, module.canonical_path));
+                result.push_str(&format!("{}\n", module.canonical_path));
             }
         }
         

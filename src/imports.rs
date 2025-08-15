@@ -63,13 +63,13 @@ fn is_stdlib_module(module_name: &str) -> bool {
 }
 
 /// Resolves a module name to a ModuleIdentifier.
-fn resolve_module_identifier(module_name: &str, _source_file: &Path, _project_root: &Path) -> ModuleIdentifier {
+fn resolve_module_identifier(module_name: &str, _source_file: &Path, project_root: &Path) -> ModuleIdentifier {
     let origin = if is_stdlib_module(module_name) {
         ModuleOrigin::Builtin
-    } else {
-        // For now, treat everything else as Internal
-        // TODO: Add External detection and relative import resolution
+    } else if crate::pyproject::is_internal_module(module_name, project_root) {
         ModuleOrigin::Internal
+    } else {
+        ModuleOrigin::External
     };
     
     ModuleIdentifier {
@@ -253,7 +253,7 @@ import numpy as np
         assert_eq!(collections_module.origin, ModuleOrigin::Builtin);
         
         let numpy_module = modules.iter().find(|m| m.canonical_path == "numpy").unwrap();
-        assert_eq!(numpy_module.origin, ModuleOrigin::Internal); // TODO: Should be External when implemented
+        assert_eq!(numpy_module.origin, ModuleOrigin::External); // Now correctly detected as External
     }
 
     #[test]
@@ -278,8 +278,8 @@ import custom_module
         let sys_module = modules.iter().find(|m| m.canonical_path == "sys").unwrap();
         assert_eq!(sys_module.origin, ModuleOrigin::Builtin);
         
-        // custom_module should be detected as internal (for now)
+        // custom_module should be detected as external (since no pyproject.toml in test)
         let custom_module = modules.iter().find(|m| m.canonical_path == "custom_module").unwrap();
-        assert_eq!(custom_module.origin, ModuleOrigin::Internal);
+        assert_eq!(custom_module.origin, ModuleOrigin::External);
     }
 }

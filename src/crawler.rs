@@ -5,8 +5,8 @@ use crate::imports::{extract_module_dependencies_with_context, ModuleIdentifier,
 use crate::graph::DependencyGraph;
 
 /// Builds a dependency graph from all Python files in a directory (recursive).
-pub fn build_directory_dependency_graph(dir_path: &Path) -> Result<DependencyGraph, Box<dyn std::error::Error>> {
-    let python_files = analyze_python_directory_recursive(dir_path)?;
+pub fn build_directory_dependency_graph(dir_path: &Path, max_files: Option<usize>) -> Result<DependencyGraph, Box<dyn std::error::Error>> {
+    let python_files = analyze_python_directory_recursive(dir_path, max_files)?;
     let mut graph = DependencyGraph::new();
     
     for file_path in &python_files {
@@ -54,7 +54,7 @@ pub fn analyze_python_directory(dir_path: &Path) -> Result<Vec<std::path::PathBu
 }
 
 /// Discovers all Python files in a directory and its subdirectories (recursive).
-pub fn analyze_python_directory_recursive(dir_path: &Path) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
+pub fn analyze_python_directory_recursive(dir_path: &Path, max_files: Option<usize>) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
     if !dir_path.is_dir() {
         return Err(format!("Path '{}' is not a directory", dir_path.display()).into());
     }
@@ -65,7 +65,17 @@ pub fn analyze_python_directory_recursive(dir_path: &Path) -> Result<Vec<PathBuf
         .follow_links(false)
         .into_iter()
         .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().is_file())
+        .filter(|e| {
+            // Skip directories starting with dot or named 'tests'
+            if e.file_type().is_dir() {
+                if let Some(name) = e.file_name().to_str() {
+                    if name.starts_with('.') || name == "tests" {
+                        return false;
+                    }
+                }
+            }
+            e.file_type().is_file()
+        })
     {
         let path = entry.path();
         if let Some(extension) = path.extension() {
@@ -77,6 +87,11 @@ pub fn analyze_python_directory_recursive(dir_path: &Path) -> Result<Vec<PathBuf
     
     // Sort files for consistent output
     python_files.sort();
+    
+    // Limit files if max_files is specified
+    if let Some(max) = max_files {
+        python_files.truncate(max);
+    }
     
     Ok(python_files)
 }
@@ -117,12 +132,13 @@ pub fn analyze_python_file_with_package(file_path: &Path, project_root: &Path) -
 }
 
 /// Computes the Python module name from file path relative to project root.
+/// Uses pyproject.toml package definitions to normalize module names.
 /// 
 /// Examples:
 /// - `/project/main.py` -> `main`
 /// - `/project/package/module.py` -> `package.module`
 /// - `/project/package/__init__.py` -> `package`
-/// - `/project/deep/nested/module.py` -> `deep.nested.module`
+/// - `/project/JOHN/rna/rna/data_processing/binner.py` -> `rna.data_processing.binner`
 fn compute_module_name(file_path: &Path, project_root: &Path) -> Result<String, Box<dyn std::error::Error>> {
     let relative_path = file_path.strip_prefix(project_root)
         .map_err(|_| format!("File path '{}' is not within project root '{}'", 
@@ -153,7 +169,39 @@ fn compute_module_name(file_path: &Path, project_root: &Path) -> Result<String, 
         return Err("Could not determine module name from file path".into());
     }
     
-    Ok(parts.join("."))
+    let full_name = parts.join(".");
+    
+    // Normalize module name using pyproject.toml package definitions
+    normalize_module_name(&full_name, project_root)
+}
+
+/// Normalizes a module name using pyproject.toml package definitions.
+/// For example, transforms "JOHN.rna.rna.data_processing.binner" -> "rna.data_processing.binner"
+fn normalize_module_name(module_name: &str, project_root: &Path) -> Result<String, Box<dyn std::error::Error>> {
+    // Get package mappings from pyproject.toml
+    let mappings = crate::pyproject::get_package_mappings(project_root)?;
+    
+    // For each package mapping, check if the module name matches the expected path
+    for mapping in &mappings {
+        if let Some(from_path) = &mapping.from {
+            // Convert "JOHN/rna" to "JOHN.rna"
+            let from_dotted = from_path.replace('/', ".");
+            
+            // Check if module starts with the "from" path
+            if module_name.starts_with(&from_dotted) {
+                // Strip the "from" path and replace with package name
+                // e.g., "JOHN.rna.rna.data_processing.binner" -> "rna.data_processing.binner" 
+                if let Some(remainder) = module_name.strip_prefix(&format!("{}.", from_dotted)) {
+                    return Ok(format!("{}.{}", mapping.include, remainder));
+                } else if module_name == from_dotted {
+                    return Ok(mapping.include.clone());
+                }
+            }
+        }
+    }
+    
+    // No normalization needed
+    Ok(module_name.to_string())
 }
 
 #[cfg(test)]
@@ -285,7 +333,7 @@ import numpy as np
     fn test_build_directory_dependency_graph_empty() {
         let temp_dir = TempDir::new().expect("Failed to create temp directory");
         
-        let result = build_directory_dependency_graph(temp_dir.path());
+        let result = build_directory_dependency_graph(temp_dir.path(), None);
         assert!(result.is_ok());
         
         let graph = result.unwrap();
@@ -298,7 +346,7 @@ import numpy as np
         let temp_dir = TempDir::new().expect("Failed to create temp directory");
         create_temp_python_file(temp_dir.path(), "main.py", "import os\nimport sys");
         
-        let result = build_directory_dependency_graph(temp_dir.path());
+        let result = build_directory_dependency_graph(temp_dir.path(), None);
         assert!(result.is_ok());
         
         let graph = result.unwrap();
@@ -314,7 +362,7 @@ import numpy as np
         create_temp_python_file(temp_dir.path(), "module2.py", "import sys\nimport json");
         create_temp_python_file(temp_dir.path(), "module3.py", "# No imports");
         
-        let result = build_directory_dependency_graph(temp_dir.path());
+        let result = build_directory_dependency_graph(temp_dir.path(), None);
         assert!(result.is_ok());
         
         let graph = result.unwrap();
@@ -341,7 +389,7 @@ import numpy as np
         create_temp_python_file(temp_dir.path(), "app.py", "import common\nimport json");
         create_temp_python_file(temp_dir.path(), "test.py", "import common\nimport unittest");
         
-        let result = build_directory_dependency_graph(temp_dir.path());
+        let result = build_directory_dependency_graph(temp_dir.path(), None);
         assert!(result.is_ok());
         
         let graph = result.unwrap();
@@ -355,7 +403,7 @@ import numpy as np
     #[test]
     fn test_build_directory_dependency_graph_nonexistent_directory() {
         let nonexistent_path = Path::new("/nonexistent/directory");
-        let result = build_directory_dependency_graph(nonexistent_path);
+        let result = build_directory_dependency_graph(nonexistent_path, None);
         assert!(result.is_err());
     }
 
@@ -371,7 +419,7 @@ import numpy as np
         create_temp_python_file(&dir_path.join("package/subpackage"), "deep.py", "import json");
         create_temp_python_file(&dir_path.join("package"), "__init__.py", "");
         
-        let result = analyze_python_directory_recursive(dir_path);
+        let result = analyze_python_directory_recursive(dir_path, None);
         assert!(result.is_ok());
         let files = result.unwrap();
         

@@ -69,7 +69,7 @@ from collections import defaultdict
     for module in modules {
         match module.canonical_path.as_str() {
             "os" | "sys" | "collections" => assert_eq!(module.origin, ModuleOrigin::Builtin),
-            "numpy" | "requests" => assert_eq!(module.origin, ModuleOrigin::Internal), // TODO: Should be External when implemented
+            "numpy" | "requests" => assert_eq!(module.origin, ModuleOrigin::External), // Now correctly detected as External
             _ => {}
         }
     }
