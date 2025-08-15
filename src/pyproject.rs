@@ -116,6 +116,46 @@ pub fn normalize_module_name(module_name: &str) -> Result<String> {
     }
 }
 
+/// Computes the Python module name from file path relative to project root.
+/// Uses pyproject.toml package definitions to normalize module names.
+pub fn compute_module_name(
+    file_path: &Path,
+    project_root: &Path,
+) -> Result<String> {
+    let relative_path = file_path.strip_prefix(project_root).map_err(|_| {
+        anyhow::anyhow!(
+            "File path '{}' is not within project root '{}'",
+            file_path.display(),
+            project_root.display()
+        )
+    })?;
+
+    let mut parts = Vec::new();
+
+    // Add all directory components from the relative path
+    for component in relative_path.components() {
+        if let std::path::Component::Normal(name) = component
+            && let Some(name_str) = name.to_str()
+        {
+            if name_str.ends_with(".py") {
+                let file_stem = name_str.strip_suffix(".py").unwrap();
+                if file_stem != "__init__" {
+                    parts.push(file_stem.to_string());
+                }
+            } else {
+                parts.push(name_str.to_string());
+            }
+        }
+    }
+
+    if parts.is_empty() {
+        return Err(anyhow::anyhow!("Could not determine module name from file path"));
+    }
+
+    let full_name = parts.join(".");
+    normalize_module_name(&full_name)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -157,11 +197,44 @@ packages = [
 "#;
         fs::write(temp_dir.path().join("pyproject.toml"), pyproject_content).unwrap();
 
-        // Initialize the parser for this test
+        // Create a direct parser instance for this test to avoid global state
+        let parser = PyProjectParser::new(temp_dir.path());
+        
+        assert!(parser.is_internal_module("common"));
+        assert!(parser.is_internal_module("common.utils"));
+        assert!(!parser.is_internal_module("numpy"));
+    }
+
+    #[test]
+    fn test_compute_module_name() {
+        let temp_dir = TempDir::new().unwrap();
         init(temp_dir.path());
         
-        assert!(is_internal_module("common"));
-        assert!(is_internal_module("common.utils"));
-        assert!(!is_internal_module("numpy"));
+        let project_root = temp_dir.path();
+
+        // Test simple file
+        let file_path = project_root.join("main.py");
+        fs::write(&file_path, "").unwrap();
+        assert_eq!(
+            compute_module_name(&file_path, project_root).unwrap(),
+            "main"
+        );
+
+        // Test package module
+        fs::create_dir_all(project_root.join("package")).unwrap();
+        let file_path = project_root.join("package/module.py");
+        fs::write(&file_path, "").unwrap();
+        assert_eq!(
+            compute_module_name(&file_path, project_root).unwrap(),
+            "package.module"
+        );
+
+        // Test __init__.py
+        let file_path = project_root.join("package/__init__.py");
+        fs::write(&file_path, "").unwrap();
+        assert_eq!(
+            compute_module_name(&file_path, project_root).unwrap(),
+            "package"
+        );
     }
 }

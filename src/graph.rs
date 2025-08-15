@@ -1,4 +1,5 @@
 use crate::imports::{ModuleIdentifier, ModuleOrigin};
+use anyhow::Result;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
 use petgraph::{Directed, Graph};
@@ -11,8 +12,8 @@ use std::fmt;
 /// (import statement) from one module to another.
 #[derive(Debug)]
 pub struct DependencyGraph {
-    /// The underlying directed graph structure
-    graph: Graph<ModuleIdentifier, (), Directed>,
+    /// The underlying directed graph structure where each node contains a module path string
+    graph: Graph<String, (), Directed>,
     /// Fast lookup from module identifier to graph node index
     module_index: HashMap<ModuleIdentifier, NodeIndex>,
 }
@@ -30,11 +31,13 @@ impl DependencyGraph {
     ///
     /// Returns the node index for the newly added module.
     pub fn add_module(&mut self, module_id: ModuleIdentifier) -> NodeIndex {
-        if !self.module_index.contains_key(&module_id) {
-            let node_idx = self.graph.add_node(module_id.clone());
-            self.module_index.insert(module_id.clone(), node_idx);
+        if let Some(&existing_idx) = self.module_index.get(&module_id) {
+            existing_idx
+        } else {
+            let node_idx = self.graph.add_node(module_id.canonical_path.clone());
+            self.module_index.insert(module_id, node_idx);
+            node_idx
         }
-        *self.module_index.get(&module_id.clone()).unwrap()
     }
 
     /// Adds a dependency edge between two modules.
@@ -49,26 +52,20 @@ impl DependencyGraph {
         &mut self,
         from_module: &ModuleIdentifier,
         to_module: &ModuleIdentifier,
-    ) -> Result<(), String> {
+    ) -> Result<()> {
         let from_idx = self
             .module_index
             .get(from_module)
-            .ok_or_else(|| format!("Module '{}' not found", from_module.canonical_path))?;
+            .ok_or_else(|| anyhow::anyhow!("Module '{}' not found", from_module.canonical_path))?;
         let to_idx = self
             .module_index
             .get(to_module)
-            .ok_or_else(|| format!("Module '{}' not found", to_module.canonical_path))?;
+            .ok_or_else(|| anyhow::anyhow!("Module '{}' not found", to_module.canonical_path))?;
 
         self.graph.add_edge(*from_idx, *to_idx, ());
         Ok(())
     }
 
-    /// Retrieves module identifier.
-    pub fn get_module(&self, module_id: &ModuleIdentifier) -> Option<&ModuleIdentifier> {
-        self.module_index
-            .get(module_id)
-            .and_then(|&idx| self.graph.node_weight(idx))
-    }
 
     /// Gets all modules that the specified module depends on.
     ///
@@ -79,16 +76,17 @@ impl DependencyGraph {
     pub fn get_dependencies(
         &self,
         module_id: &ModuleIdentifier,
-    ) -> Result<Vec<&ModuleIdentifier>, String> {
+    ) -> Result<Vec<String>> {
         let node_idx = self
             .module_index
             .get(module_id)
-            .ok_or_else(|| format!("Module '{}' not found in graph", module_id.canonical_path))?;
+            .ok_or_else(|| anyhow::anyhow!("Module '{}' not found in graph", module_id.canonical_path))?;
 
         Ok(self
             .graph
             .edges(*node_idx)
             .filter_map(|edge| self.graph.node_weight(edge.target()))
+            .cloned()
             .collect())
     }
 
@@ -101,16 +99,17 @@ impl DependencyGraph {
     pub fn get_dependents(
         &self,
         module_id: &ModuleIdentifier,
-    ) -> Result<Vec<&ModuleIdentifier>, String> {
+    ) -> Result<Vec<String>> {
         let node_idx = self
             .module_index
             .get(module_id)
-            .ok_or_else(|| format!("Module '{}' not found in graph", module_id.canonical_path))?;
+            .ok_or_else(|| anyhow::anyhow!("Module '{}' not found in graph", module_id.canonical_path))?;
 
         Ok(self
             .graph
             .edges_directed(*node_idx, petgraph::Incoming)
             .filter_map(|edge| self.graph.node_weight(edge.source()))
+            .cloned()
             .collect())
     }
 
@@ -126,7 +125,7 @@ impl DependencyGraph {
 
     /// Returns an iterator over all modules in the graph.
     pub fn all_modules(&self) -> impl Iterator<Item = &ModuleIdentifier> {
-        self.graph.node_weights()
+        self.module_index.keys()
     }
 }
 
@@ -188,11 +187,9 @@ mod tests {
         graph.add_module(module_id.clone());
 
         assert_eq!(graph.module_count(), 1);
-        assert!(graph.get_module(&module_id).is_some());
-        assert_eq!(
-            graph.get_module(&module_id).unwrap().canonical_path,
-            "test.module"
-        );
+        // Module should exist in the graph
+        let all_modules: Vec<_> = graph.all_modules().collect();
+        assert!(all_modules.iter().any(|m| m.canonical_path == "test.module"));
     }
 
     #[test]
@@ -241,12 +238,8 @@ mod tests {
         let deps = graph.get_dependencies(&main_id).unwrap();
         assert_eq!(deps.len(), 2);
 
-        let dep_names: Vec<&str> = deps
-            .iter()
-            .map(|module| module.canonical_path.as_str())
-            .collect();
-        assert!(dep_names.contains(&"utils"));
-        assert!(dep_names.contains(&"config"));
+        assert!(deps.contains(&"utils".to_string()));
+        assert!(deps.contains(&"config".to_string()));
     }
 
     #[test]
@@ -267,12 +260,8 @@ mod tests {
         let dependents = graph.get_dependents(&utils_id).unwrap();
         assert_eq!(dependents.len(), 2);
 
-        let dependent_names: Vec<&str> = dependents
-            .iter()
-            .map(|module| module.canonical_path.as_str())
-            .collect();
-        assert!(dependent_names.contains(&"main"));
-        assert!(dependent_names.contains(&"tests"));
+        assert!(dependents.contains(&"main".to_string()));
+        assert!(dependents.contains(&"tests".to_string()));
     }
 
     #[test]
@@ -286,19 +275,13 @@ mod tests {
 
         let result = graph.add_dependency(&existing_id, &missing_id);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Module 'missing' not found"));
+        assert!(result.unwrap_err().to_string().contains("Module 'missing' not found"));
 
         let result2 = graph.add_dependency(&missing_id, &existing_id);
         assert!(result2.is_err());
-        assert!(result2.unwrap_err().contains("Module 'missing' not found"));
+        assert!(result2.unwrap_err().to_string().contains("Module 'missing' not found"));
     }
 
-    #[test]
-    fn test_get_nonexistent_module() {
-        let graph = DependencyGraph::new();
-        let nonexistent_id = create_test_module_id("nonexistent", ModuleOrigin::Internal);
-        assert!(graph.get_module(&nonexistent_id).is_none());
-    }
 
     #[test]
     fn test_dependencies_of_nonexistent_module() {
@@ -309,6 +292,7 @@ mod tests {
         assert!(
             result
                 .unwrap_err()
+                .to_string()
                 .contains("Module 'nonexistent' not found")
         );
     }
@@ -322,6 +306,7 @@ mod tests {
         assert!(
             result
                 .unwrap_err()
+                .to_string()
                 .contains("Module 'nonexistent' not found")
         );
     }
@@ -353,9 +338,8 @@ mod tests {
         let module_id = create_test_module_id("module1", ModuleOrigin::Internal);
         graph.add_module(module_id.clone());
         assert_eq!(graph.module_count(), 1);
-        assert!(graph.get_module(&module_id).is_some());
 
-        // Count should remain 1
+        // Adding same module again - count should remain 1
         graph.add_module(module_id.clone());
         assert_eq!(graph.module_count(), 1);
     }

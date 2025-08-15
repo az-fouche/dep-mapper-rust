@@ -10,9 +10,6 @@ struct Args {
     #[arg(value_name = "DIRECTORY")]
     dir: String,
 
-    /// Maximum number of Python files to process (useful for testing)
-    #[arg(long, value_name = "COUNT")]
-    max_files: Option<usize>,
 }
 
 fn main() {
@@ -22,7 +19,7 @@ fn main() {
     // Initialize the pyproject parser once
     dep_mapper::pyproject::init(dir_path);
 
-    match build_directory_dependency_graph(dir_path, args.max_files) {
+    match build_directory_dependency_graph(dir_path) {
         Ok(graph) => {
             println!("Analyzed directory: {}", args.dir);
             println!("{}", graph);

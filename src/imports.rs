@@ -7,8 +7,7 @@ use std::collections::HashSet;
 /// Represents the origin type of a Python module.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ModuleOrigin {
-    Builtin,  // Python standard library modules
-    External, // Third-party packages from site-packages
+    External, // Standard library and third-party packages
     Internal, // Project modules within the same codebase
 }
 
@@ -19,56 +18,6 @@ pub struct ModuleIdentifier {
     pub canonical_path: String,
 }
 
-/// Gets Python stdlib module names from sys.stdlib_module_names
-fn get_stdlib_modules() -> Result<HashSet<String>> {
-    use std::process::Command;
-
-    let output = Command::new("python3")
-        .args([
-            "-c",
-            "import sys; print('\n'.join(sorted(sys.stdlib_module_names)))",
-        ])
-        .output()?;
-
-    if !output.status.success() {
-        return Err(anyhow::anyhow!(
-            "Failed to get stdlib modules: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
-
-    let modules = String::from_utf8(output.stdout)?
-        .lines()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect();
-
-    Ok(modules)
-}
-
-/// Cached stdlib module names
-static STDLIB_MODULES: std::sync::OnceLock<HashSet<String>> = std::sync::OnceLock::new();
-
-/// Check if a module is part of Python's standard library
-fn is_stdlib_module(module_name: &str) -> bool {
-    let stdlib = STDLIB_MODULES.get_or_init(|| {
-        get_stdlib_modules().unwrap_or_else(|_| {
-            // Fallback to minimal set if python3 command fails
-            HashSet::from([
-                "os".to_string(),
-                "sys".to_string(),
-                "json".to_string(),
-                "re".to_string(),
-                "math".to_string(),
-                "collections".to_string(),
-            ])
-        })
-    });
-
-    // Check the top-level module name (e.g., "os" from "os.path")
-    let top_level = module_name.split('.').next().unwrap_or(module_name);
-    stdlib.contains(top_level)
-}
 
 /// Extracts the root module name from a dotted module path.
 fn extract_root_module(module_name: &str) -> &str {
@@ -79,9 +28,7 @@ fn extract_root_module(module_name: &str) -> &str {
 fn resolve_module_identifier(
     module_name: &str,
 ) -> ModuleIdentifier {
-    let origin = if is_stdlib_module(module_name) {
-        ModuleOrigin::Builtin
-    } else if crate::pyproject::is_internal_module(module_name) {
+    let origin = if crate::pyproject::is_internal_module(module_name) {
         ModuleOrigin::Internal
     } else {
         ModuleOrigin::External
@@ -89,13 +36,8 @@ fn resolve_module_identifier(
 
     let canonical_path = match origin {
         ModuleOrigin::Internal => {
-            // Apply the same normalization used for source modules
-            let normalized = crate::pyproject::normalize_module_name(module_name)
-                .unwrap_or_else(|_| module_name.to_string());
-            if module_name.contains("xai_single_cell") && module_name != normalized {
-                println!("IMPORT NORMALIZATION: '{}' -> '{}'", module_name, normalized);
-            }
-            normalized
+            crate::pyproject::normalize_module_name(module_name)
+                .unwrap_or_else(|_| module_name.to_string())
         }
         _ => extract_root_module(module_name).to_string(),
     };
@@ -284,7 +226,7 @@ import numpy as np
             .iter()
             .find(|m| m.canonical_path == "collections")
             .unwrap();
-        assert_eq!(collections_module.origin, ModuleOrigin::Builtin);
+        assert_eq!(collections_module.origin, ModuleOrigin::External);
 
         let numpy_module = modules
             .iter()
@@ -308,13 +250,13 @@ import custom_module
         assert!(module_names.contains("sys"));
         assert!(module_names.contains("custom_module"));
 
-        // os should be detected as builtin
+        // os should be detected as external
         let os_module = modules.iter().find(|m| m.canonical_path == "os").unwrap();
-        assert_eq!(os_module.origin, ModuleOrigin::Builtin);
+        assert_eq!(os_module.origin, ModuleOrigin::External);
 
-        // sys should be detected as builtin
+        // sys should be detected as external
         let sys_module = modules.iter().find(|m| m.canonical_path == "sys").unwrap();
-        assert_eq!(sys_module.origin, ModuleOrigin::Builtin);
+        assert_eq!(sys_module.origin, ModuleOrigin::External);
 
         // custom_module should be detected as external (since no pyproject.toml in test)
         let custom_module = modules
