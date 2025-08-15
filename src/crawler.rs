@@ -1,6 +1,7 @@
 use crate::graph::DependencyGraph;
 use crate::imports::{ModuleIdentifier, ModuleOrigin, extract_module_deps};
 use anyhow::Result;
+use indicatif::{ProgressBar, ProgressStyle};
 use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
@@ -12,7 +13,22 @@ pub fn build_directory_dependency_graph(
     let python_files = analyze_python_directory_recursive(dir_path)?;
     let mut graph = DependencyGraph::new();
 
+    if python_files.is_empty() {
+        return Ok(graph);
+    }
+
+    let pb = ProgressBar::new(python_files.len() as u64);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos:>7}/{len:7} {msg}")
+            .unwrap()
+            .progress_chars("##-")
+    );
+    pb.set_message("Analyzing Python files");
+
     for file_path in &python_files {
+        pb.set_message(format!("Processing {}", file_path.file_name().unwrap_or_default().to_string_lossy()));
+        
         match analyze_python_file_with_package(file_path, dir_path) {
             Ok((module_id, dependencies)) => {
                 graph.add_module(module_id.clone()); // Ignore duplicates - module might be added as dependency first
@@ -30,8 +46,10 @@ pub fn build_directory_dependency_graph(
                 continue;
             }
         }
+        pb.inc(1);
     }
 
+    pb.finish_with_message("Analysis complete");
     Ok(graph)
 }
 
@@ -70,8 +88,8 @@ pub fn analyze_python_directory_recursive(
     }
 
     let mut python_files = Vec::new();
-
-    for entry in WalkDir::new(dir_path)
+    
+    let walker = WalkDir::new(dir_path)
         .follow_links(false)
         .into_iter()
         .filter_map(|e| e.ok())
@@ -84,15 +102,28 @@ pub fn analyze_python_directory_recursive(
                 return false;
             }
             e.file_type().is_file()
-        })
-    {
+        });
+
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(
+        ProgressStyle::default_spinner()
+            .template("{spinner:.green} {msg}")
+            .unwrap()
+    );
+    pb.set_message("Discovering Python files...");
+
+    for entry in walker {
         let path = entry.path();
         if let Some(extension) = path.extension()
             && extension == "py"
         {
             python_files.push(path.to_path_buf());
+            pb.set_message(format!("Found {} Python files", python_files.len()));
         }
+        pb.tick();
     }
+
+    pb.finish_and_clear();
 
     // Sort files for consistent output
     python_files.sort();
