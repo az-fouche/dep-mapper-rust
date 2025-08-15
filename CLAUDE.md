@@ -1,41 +1,52 @@
-# Python Dependency Mapper - Rust CLI Tool
+# Python Dependency Mapper
 
-Rust CLI tool to analyze Python codebases and understand module dependencies.
+A Rust CLI tool for analyzing Python codebases and mapping module dependencies.
 
-## Target
-- **Language**: Python 3.10, ~100k lines
-- **Code base path:** /path/to/python/project/
-- **Analysis**: Static imports only (no dynamic imports)
-- **Crates**: `rustpython-parser`, `clap`, `petgraph`, `walkdir`, `anyhow`
+## Project Scope
+- **Target**: Python 3.10 codebases (~100k lines)
+- **Analysis**: Static imports only (excludes dynamic imports)
+- **Dependencies**: `rustpython-parser`, `clap`, `petgraph`, `walkdir`, `anyhow`
 
-## Development Commands
+## Development
 ```bash
 cargo build && cargo run
 cargo test
 cargo clippy && cargo fmt
 ```
 
-## Current Status
-- ✅ Import extraction (`src/imports.rs`) with tests
-- ✅ Dependency graph (`src/graph.rs`) with ModuleIdentifier nodes
-- ✅ Single file CLI (`src/main.rs`) and integration tests
-- **Next**: Directory traversal → Module catalog → Dependency graph
-
-## Parser Design
+## Parser Features
 - Extracts original module names (ignores aliases like `import numpy as np`)
-- Supports: `import module`, `from module import name`, nested paths, star imports
-- Uses `rustpython-parser` for AST-based parsing
+- Supports all import styles: `import module`, `from module import name`, nested paths, star imports
+- AST-based parsing via `rustpython-parser`
 
-## Coding Style
+## Development Principles
 
-- **YAGNI**: Avoid over-engineering
-- **Function-first**: Use simple functions over complex patterns/structs
-- **Question redundancy**: When you see data duplication (same info in multiple places), eliminate one source rather than sync them
-- **Fail fast on invariant violations**: Return errors for invalid states instead of silently creating inconsistent data
-- **Use containers for convoluted return types**: When functions return complex tuples like `(Vec<ImportInfo>, DependencyGraph, ModuleIdentifier)`, create a simple container struct instead
-- **Don't add new types if existing ones suffice**: Before creating a new enum or struct, check if an existing type already captures what you need. Often the core data is already modeled elsewhere
-- **Avoid what/how comments**: Don't add comments that explain what the code does or how it works. Code should be self-explanatory through clear naming and structure. Only add comments for business logic context or why decisions were made.
-- **Best code is no code at all**: Privilege solutions that require only a small amount of code, or even better that removes some code. It will make our software much easier to maintain in the future.
-- **Use the right tool for the right task**: Be careful not to overengineer your solutions, if one or two functions can do the job, no need to add a new class.
-- **Debug methodically**: Apply rigorous debugging methodology (1) ensure you are able to reproduce the bug (2) understand what the code is supposed to do, and what it does instead (3) identify the point in the code where the bug symptom occurs (4) identify which code entities (functions, classes, data) are located upstream of the bug (5) implement strategic temporary logging techniques to gather information and understand the root cause of the bug (6) find a way to test and validate your hypothesis (7) figure out an elegant solution that eliminates the bug at its root, not one that hides the symptom or introduces enormous software complexity (8) only then, carry out the implementation (9) verify that the bug is solved, otherwise go back to step (4) and that all tests pass.
-- **Do not go overboard**: If the user asks for a feature X, implement the feature X. No need to also implement Y and Z just in case. If the user needs Y and Z, ensure they will ask for it.
+### Simplicity First
+- **YAGNI**: Avoid over-engineering - build only what's needed
+- **Prefer functions**: Use simple functions over complex patterns and structs
+- **Minimal code**: The best solution is often the one that requires less code
+- **Right-sized solutions**: Don't build classes when functions suffice
+
+### Data Integrity
+- **Eliminate redundancy**: When data exists in multiple places, remove one source rather than synchronizing
+- **Fail fast**: Return errors for invalid states instead of creating inconsistent data
+- **Container structs**: Replace complex return types like `(Vec<ImportInfo>, DependencyGraph, ModuleIdentifier)` with simple containers
+- **Reuse types**: Check existing types before creating new enums or structs
+
+### Code Quality
+- **Self-documenting code**: Use clear naming and structure instead of explanatory comments
+- **Context-only comments**: Only comment on business logic context or decision rationale
+- **Scope discipline**: Implement exactly what's requested - no speculative features
+
+### Debugging Methodology
+When bugs occur, follow this process:
+1. Reproduce the bug reliably
+2. Understand expected vs actual behavior
+3. Locate where the symptom manifests
+4. Identify upstream code entities (functions, data structures)
+5. Add strategic logging to understand root cause
+6. Once you gathered enough data, formulate one hypothesis
+7. Test your hypothesis
+8. Design an elegant solution that fixes the root cause
+9. Implement and verify the fix
+10. Finally, ensure all tests pass so that no new bug is introduced
