@@ -50,6 +50,10 @@ pub fn build_directory_dependency_graph(
     }
 
     pb.finish_with_message("Analysis complete");
+    
+    // Add containment relationships based on module hierarchy
+    graph.add_containment_relationships()?;
+    
     Ok(graph)
 }
 
