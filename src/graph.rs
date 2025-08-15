@@ -6,14 +6,26 @@ use petgraph::{Directed, Graph};
 use std::collections::HashMap;
 use std::fmt;
 
+/// Represents the type of dependency relationship between modules.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DependencyType {
+    /// X imports Y (import/from import statement)
+    Imports,
+    /// X is included in Y (e.g., function/class defined in module)
+    IncludedIn,
+    /// X contains Y (e.g., module contains function/class)
+    Contains,
+}
+
 /// A directed graph representing dependencies between Python modules.
 ///
 /// Each node represents a module, and each edge represents a dependency
-/// (import statement) from one module to another.
+/// relationship (import, containment, etc.) from one module to another.
 #[derive(Debug)]
 pub struct DependencyGraph {
     /// The underlying directed graph structure where each node contains a module path string
-    graph: Graph<String, (), Directed>,
+    /// and each edge contains the type of dependency relationship
+    graph: Graph<String, DependencyType, Directed>,
     /// Fast lookup from module identifier to graph node index
     module_index: HashMap<ModuleIdentifier, NodeIndex>,
 }
@@ -43,8 +55,9 @@ impl DependencyGraph {
     /// Adds a dependency edge between two modules.
     ///
     /// # Arguments
-    /// * `from_module` - The identifier of the module that imports
-    /// * `to_module` - The identifier of the module being imported
+    /// * `from_module` - The identifier of the source module
+    /// * `to_module` - The identifier of the target module
+    /// * `dependency_type` - The type of relationship between the modules
     ///
     /// # Errors
     /// Returns an error if either module is not found in the graph.
@@ -52,6 +65,7 @@ impl DependencyGraph {
         &mut self,
         from_module: &ModuleIdentifier,
         to_module: &ModuleIdentifier,
+        dependency_type: DependencyType,
     ) -> Result<()> {
         let from_idx = self
             .module_index
@@ -62,7 +76,7 @@ impl DependencyGraph {
             .get(to_module)
             .ok_or_else(|| anyhow::anyhow!("Module '{}' not found", to_module.canonical_path))?;
 
-        self.graph.add_edge(*from_idx, *to_idx, ());
+        self.graph.add_edge(*from_idx, *to_idx, dependency_type);
         Ok(())
     }
 
@@ -214,7 +228,7 @@ mod tests {
         graph.add_module(module1.clone());
         graph.add_module(module2.clone());
 
-        let result = graph.add_dependency(&module1, &module2);
+        let result = graph.add_dependency(&module1, &module2, DependencyType::Imports);
 
         assert!(result.is_ok());
         assert_eq!(graph.dependency_count(), 1);
@@ -232,8 +246,8 @@ mod tests {
         graph.add_module(utils_id.clone());
         graph.add_module(config_id.clone());
 
-        graph.add_dependency(&main_id, &utils_id).unwrap();
-        graph.add_dependency(&main_id, &config_id).unwrap();
+        graph.add_dependency(&main_id, &utils_id, DependencyType::Imports).unwrap();
+        graph.add_dependency(&main_id, &config_id, DependencyType::Imports).unwrap();
 
         let deps = graph.get_dependencies(&main_id).unwrap();
         assert_eq!(deps.len(), 2);
@@ -254,8 +268,8 @@ mod tests {
         graph.add_module(main_id.clone());
         graph.add_module(tests_id.clone());
 
-        graph.add_dependency(&main_id, &utils_id).unwrap();
-        graph.add_dependency(&tests_id, &utils_id).unwrap();
+        graph.add_dependency(&main_id, &utils_id, DependencyType::Imports).unwrap();
+        graph.add_dependency(&tests_id, &utils_id, DependencyType::Imports).unwrap();
 
         let dependents = graph.get_dependents(&utils_id).unwrap();
         assert_eq!(dependents.len(), 2);
@@ -273,11 +287,11 @@ mod tests {
 
         graph.add_module(existing_id.clone());
 
-        let result = graph.add_dependency(&existing_id, &missing_id);
+        let result = graph.add_dependency(&existing_id, &missing_id, DependencyType::Imports);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Module 'missing' not found"));
 
-        let result2 = graph.add_dependency(&missing_id, &existing_id);
+        let result2 = graph.add_dependency(&missing_id, &existing_id, DependencyType::Imports);
         assert!(result2.is_err());
         assert!(result2.unwrap_err().to_string().contains("Module 'missing' not found"));
     }

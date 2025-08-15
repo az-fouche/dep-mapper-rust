@@ -1,4 +1,4 @@
-use crate::graph::DependencyGraph;
+use crate::graph::{DependencyGraph, DependencyType};
 use crate::imports::{ModuleIdentifier, ModuleOrigin, extract_module_deps};
 use anyhow::Result;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -34,7 +34,7 @@ pub fn build_directory_dependency_graph(
                 graph.add_module(module_id.clone()); // Ignore duplicates - module might be added as dependency first
                 for dep in &dependencies {
                     graph.add_module(dep.clone()); // Ignore duplicates
-                    graph.add_dependency(&module_id, dep)?;
+                    graph.add_dependency(&module_id, dep, DependencyType::Imports)?;
                 }
             }
             Err(e) => {

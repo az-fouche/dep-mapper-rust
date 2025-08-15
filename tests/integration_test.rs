@@ -1,4 +1,4 @@
-use dep_mapper::graph::DependencyGraph;
+use dep_mapper::graph::{DependencyGraph, DependencyType};
 use dep_mapper::imports::{ModuleOrigin, extract_module_deps};
 use std::collections::HashSet;
 use std::fs;
@@ -38,7 +38,7 @@ fn test_full_workflow_with_test_py() {
     graph.add_module(test_module.clone());
     for dep in &dependencies {
         graph.add_module(dep.clone()); // Ignore duplicates
-        graph.add_dependency(&test_module, dep).unwrap();
+        graph.add_dependency(&test_module, dep, DependencyType::Imports).unwrap();
     }
 
     // Verify graph state
