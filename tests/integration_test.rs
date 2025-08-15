@@ -1,5 +1,5 @@
 use dep_mapper::graph::DependencyGraph;
-use dep_mapper::imports::{ModuleOrigin, extract_module_dependencies_with_context};
+use dep_mapper::imports::{ModuleOrigin, extract_module_deps};
 use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
@@ -11,9 +11,8 @@ fn test_full_workflow_with_test_py() {
     let python_code = fs::read_to_string(test_file_path).expect("Should be able to read test.py");
 
     // Extract dependencies
-    let current_dir = std::env::current_dir().unwrap();
     let dependencies =
-        extract_module_dependencies_with_context(&python_code, test_file_path, &current_dir)
+        extract_module_deps(&python_code)
             .expect("Should be able to extract dependencies");
 
     // Verify we found the expected dependencies
@@ -64,9 +63,7 @@ import requests
 from collections import defaultdict
 "#;
 
-    let current_dir = std::env::current_dir().unwrap();
-    let test_path = current_dir.join("test.py");
-    let modules = extract_module_dependencies_with_context(python_code, &test_path, &current_dir)
+    let modules = extract_module_deps(python_code)
         .expect("Should parse correctly");
 
     // Check that builtin modules are detected correctly

@@ -1,141 +1,119 @@
 use anyhow::Result;
-use std::collections::HashSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-/// Cached internal modules for the current project
-static INTERNAL_MODULES_CACHE: OnceLock<(String, HashSet<String>)> = OnceLock::new();
+static PARSER: OnceLock<PyProjectParser> = OnceLock::new();
 
-/// Package mapping from pyproject.toml
+/// Package information from pyproject.toml
 #[derive(Debug, Clone)]
-pub struct PackageMapping {
-    pub include: String,
-    pub from: Option<String>,
+pub struct PackageInfo {
+    pub name: String,      // Python module name (e.g., "mymodule")
+    pub directory: String, // Filesystem directory (e.g., "MyModule/")
 }
 
-/// Parses pyproject.toml and extracts internal module names from packages section
-pub fn get_internal_modules(project_root: &Path) -> Result<HashSet<String>> {
-    let project_key = project_root.to_string_lossy().to_string();
+/// Parser for pyproject.toml with project context
+pub struct PyProjectParser {
+    project_root: PathBuf,
+    package_info: OnceLock<Vec<PackageInfo>>,
+}
 
-    // Use cached result if available for the same project
-    if let Some((cached_project, cached_modules)) = INTERNAL_MODULES_CACHE.get()
-        && cached_project == &project_key
-    {
-        return Ok(cached_modules.clone());
-    }
-
-    let pyproject_path = project_root.join("pyproject.toml");
-
-    if !pyproject_path.exists() {
-        let empty_set = HashSet::new();
-        // Only cache if we can set (first call)
-        let _ = INTERNAL_MODULES_CACHE.set((project_key, empty_set.clone()));
-        return Ok(empty_set);
-    }
-
-    let content = std::fs::read_to_string(&pyproject_path)?;
-    let toml: toml::Value = toml::from_str(&content)?;
-
-    let mut internal_modules = HashSet::new();
-
-    if let Some(packages) = toml
-        .get("tool")
-        .and_then(|t| t.get("poetry"))
-        .and_then(|p| p.get("packages"))
-        .and_then(|p| p.as_array())
-    {
-        for package in packages {
-            if let Some(include) = package.get("include").and_then(|i| i.as_str()) {
-                internal_modules.insert(include.to_string());
-            }
+impl PyProjectParser {
+    pub fn new(project_root: &Path) -> Self {
+        Self {
+            project_root: project_root.to_path_buf(),
+            package_info: OnceLock::new(),
         }
     }
 
-    // Cache the result for future calls to the same project
-    // Only cache if we can set (first call)
-    let _ = INTERNAL_MODULES_CACHE.set((project_key, internal_modules.clone()));
+    fn load_package_info(&self) -> Result<Vec<PackageInfo>> {
+        let pyproject_path = self.project_root.join("pyproject.toml");
 
-    Ok(internal_modules)
-}
-
-/// Gets package mappings from pyproject.toml
-pub fn get_package_mappings(project_root: &Path) -> Result<Vec<PackageMapping>> {
-    let pyproject_path = project_root.join("pyproject.toml");
-
-    if !pyproject_path.exists() {
-        return Ok(Vec::new());
-    }
-
-    let content = std::fs::read_to_string(&pyproject_path)?;
-    let toml: toml::Value = toml::from_str(&content)?;
-
-    let mut mappings = Vec::new();
-
-    if let Some(packages) = toml
-        .get("tool")
-        .and_then(|t| t.get("poetry"))
-        .and_then(|p| p.get("packages"))
-        .and_then(|p| p.as_array())
-    {
-        for package in packages {
-            if let Some(include) = package.get("include").and_then(|i| i.as_str()) {
-                let from = package
-                    .get("from")
-                    .and_then(|f| f.as_str())
-                    .map(|s| s.to_string());
-                mappings.push(PackageMapping {
-                    include: include.to_string(),
-                    from,
-                });
-            }
+        if !pyproject_path.exists() {
+            return Ok(Vec::new());
         }
-    }
 
-    Ok(mappings)
-}
+        let content = std::fs::read_to_string(&pyproject_path)?;
+        let toml: toml::Value = toml::from_str(&content)?;
 
-/// Checks if a module name is internal based on the cached internal modules
-pub fn is_internal_module(module_name: &str, project_root: &Path) -> bool {
-    // Get internal modules (using cache if available)
-    let internal_modules = match get_internal_modules(project_root) {
-        Ok(modules) => modules,
-        Err(_) => return false, // If we can't read pyproject.toml, assume external
-    };
+        let mut packages = Vec::new();
 
-    // Check if the top-level module name is in our internal set
-    let top_level = module_name.split('.').next().unwrap_or(module_name);
-    internal_modules.contains(top_level)
-}
-
-/// Normalizes a module name using pyproject.toml package definitions.
-pub fn normalize_module_name(
-    module_name: &str,
-    project_root: &Path,
-) -> Result<String> {
-    // Get package mappings from pyproject.toml
-    let mappings = get_package_mappings(project_root)?;
-
-    // For each package mapping, check if the module name matches the expected path
-    for mapping in &mappings {
-        if let Some(from_path) = &mapping.from {
-            // Convert "MODULE/submodule" to "MODULE.submodule"
-            let from_dotted = from_path.replace('/', ".");
-
-            // Check if module starts with the "from" path
-            if module_name.starts_with(&from_dotted) {
-                // Strip the "from" path and replace with package name
-                // e.g., "MODULE.sub.sub.data_processing.binner" -> "sub.data_processing.binner"
-                if let Some(remainder) = module_name.strip_prefix(&format!("{}.", from_dotted)) {
-                    return Ok(format!("{}.{}", mapping.include, remainder));
-                } else if module_name == from_dotted {
-                    return Ok(mapping.include.clone());
+        if let Some(packages_array) = toml
+            .get("tool")
+            .and_then(|t| t.get("poetry"))
+            .and_then(|p| p.get("packages"))
+            .and_then(|p| p.as_array())
+        {
+            for package in packages_array {
+                if let Some(include) = package.get("include").and_then(|i| i.as_str()) {
+                    let directory = package
+                        .get("from")
+                        .and_then(|f| f.as_str())
+                        .unwrap_or(include)
+                        .to_string();
+                    
+                    packages.push(PackageInfo {
+                        name: include.to_string(),
+                        directory,
+                    });
                 }
             }
         }
+
+        Ok(packages)
     }
 
-    // No normalization needed
-    Ok(module_name.to_string())
+    pub fn get_package_info(&self) -> &Vec<PackageInfo> {
+        self.package_info.get_or_init(|| {
+            self.load_package_info().unwrap_or_default()
+        })
+    }
+
+    pub fn is_internal_module(&self, module_name: &str) -> bool {
+        let packages = self.get_package_info();
+        let top_level = module_name.split('.').next().unwrap_or(module_name);
+        packages.iter().any(|pkg| pkg.name == top_level)
+    }
+
+    pub fn normalize_module_name(&self, module_name: &str) -> Result<String> {
+        let packages = self.get_package_info();
+
+        for package in packages {
+            let from_dotted = package.directory.replace('/', ".");
+
+            if module_name.starts_with(&from_dotted) {
+                if let Some(remainder) = module_name.strip_prefix(&format!("{}.", from_dotted)) {
+                    // Check if remainder already starts with the package name (common package/package/ structure)
+                    if remainder.starts_with(&format!("{}.", package.name)) {
+                        return Ok(remainder.to_string());
+                    } else if remainder == package.name {
+                        return Ok(package.name.clone());
+                    } else {
+                        return Ok(format!("{}.{}", package.name, remainder));
+                    }
+                } else if module_name == from_dotted {
+                    return Ok(package.name.clone());
+                }
+            }
+        }
+
+        Ok(module_name.to_string())
+    }
+}
+
+/// Initialize the module-level parser with project root
+pub fn init(project_root: &Path) {
+    PARSER.get_or_init(|| PyProjectParser::new(project_root));
+}
+
+pub fn is_internal_module(module_name: &str) -> bool {
+    PARSER.get().map_or(false, |parser| parser.is_internal_module(module_name))
+}
+
+pub fn normalize_module_name(module_name: &str) -> Result<String> {
+    match PARSER.get() {
+        Some(parser) => parser.normalize_module_name(module_name),
+        None => Ok(module_name.to_string()),
+    }
 }
 
 #[cfg(test)]
@@ -145,7 +123,7 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
-    fn test_get_internal_modules() {
+    fn test_get_package_info() {
         let temp_dir = TempDir::new().unwrap();
         let pyproject_content = r#"
 [tool.poetry]
@@ -156,10 +134,15 @@ packages = [
 "#;
         fs::write(temp_dir.path().join("pyproject.toml"), pyproject_content).unwrap();
 
-        let internal_modules = get_internal_modules(temp_dir.path()).unwrap();
-        assert_eq!(internal_modules.len(), 2);
-        assert!(internal_modules.contains("common"));
-        assert!(internal_modules.contains("mymodule"));
+        let parser = PyProjectParser::new(temp_dir.path());
+        let packages = parser.get_package_info();
+        assert_eq!(packages.len(), 2);
+        
+        let common = packages.iter().find(|p| p.name == "common").unwrap();
+        assert_eq!(common.directory, "common/");
+        
+        let mymodule = packages.iter().find(|p| p.name == "mymodule").unwrap();
+        assert_eq!(mymodule.directory, "MyModule/");
     }
 
     #[test]
@@ -174,8 +157,11 @@ packages = [
 "#;
         fs::write(temp_dir.path().join("pyproject.toml"), pyproject_content).unwrap();
 
-        assert!(is_internal_module("common", temp_dir.path()));
-        assert!(is_internal_module("common.utils", temp_dir.path()));
-        assert!(!is_internal_module("numpy", temp_dir.path()));
+        // Initialize the parser for this test
+        init(temp_dir.path());
+        
+        assert!(is_internal_module("common"));
+        assert!(is_internal_module("common.utils"));
+        assert!(!is_internal_module("numpy"));
     }
 }

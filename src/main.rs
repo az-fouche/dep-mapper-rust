@@ -19,6 +19,9 @@ fn main() {
     let args = Args::parse();
     let dir_path = Path::new(&args.dir);
 
+    // Initialize the pyproject parser once
+    dep_mapper::pyproject::init(dir_path);
+
     match build_directory_dependency_graph(dir_path, args.max_files) {
         Ok(graph) => {
             println!("Analyzed directory: {}", args.dir);

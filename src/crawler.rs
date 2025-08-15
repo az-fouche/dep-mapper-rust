@@ -1,5 +1,5 @@
 use crate::graph::DependencyGraph;
-use crate::imports::{ModuleIdentifier, ModuleOrigin, extract_module_dependencies_with_context};
+use crate::imports::{ModuleIdentifier, ModuleOrigin, extract_module_deps};
 use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
@@ -111,9 +111,8 @@ pub fn analyze_python_file(
     file_path: &Path,
 ) -> Result<(ModuleIdentifier, Vec<ModuleIdentifier>), Box<dyn std::error::Error>> {
     let python_code = fs::read_to_string(file_path)?;
-    let current_dir = std::env::current_dir()?;
     let dependencies =
-        extract_module_dependencies_with_context(&python_code, file_path, &current_dir)?;
+        extract_module_deps(&python_code)?;
 
     // Create module identifier for this file
     let module_name = file_path
@@ -136,7 +135,7 @@ pub fn analyze_python_file_with_package(
 ) -> Result<(ModuleIdentifier, Vec<ModuleIdentifier>), Box<dyn std::error::Error>> {
     let python_code = fs::read_to_string(file_path)?;
     let dependencies =
-        extract_module_dependencies_with_context(&python_code, file_path, project_root)?;
+        extract_module_deps(&python_code)?;
 
     // Create module identifier with proper package path
     let module_name = compute_module_name(file_path, project_root)?;
@@ -192,11 +191,8 @@ fn compute_module_name(
     let full_name = parts.join(".");
 
     // Normalize module name using pyproject.toml package definitions
-    let normalized = crate::pyproject::normalize_module_name(&full_name, project_root)
+    let normalized = crate::pyproject::normalize_module_name(&full_name)
         .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
-    if full_name.contains("xai_single_cell") && full_name != normalized {
-        println!("SOURCE NORMALIZATION: '{}' -> '{}'", full_name, normalized);
-    }
     Ok(normalized)
 }
 
