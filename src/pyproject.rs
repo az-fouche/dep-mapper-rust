@@ -107,6 +107,37 @@ pub fn is_internal_module(module_name: &str, project_root: &Path) -> bool {
     internal_modules.contains(top_level)
 }
 
+/// Normalizes a module name using pyproject.toml package definitions.
+pub fn normalize_module_name(
+    module_name: &str,
+    project_root: &Path,
+) -> Result<String> {
+    // Get package mappings from pyproject.toml
+    let mappings = get_package_mappings(project_root)?;
+
+    // For each package mapping, check if the module name matches the expected path
+    for mapping in &mappings {
+        if let Some(from_path) = &mapping.from {
+            // Convert "MODULE/submodule" to "MODULE.submodule"
+            let from_dotted = from_path.replace('/', ".");
+
+            // Check if module starts with the "from" path
+            if module_name.starts_with(&from_dotted) {
+                // Strip the "from" path and replace with package name
+                // e.g., "MODULE.sub.sub.data_processing.binner" -> "sub.data_processing.binner"
+                if let Some(remainder) = module_name.strip_prefix(&format!("{}.", from_dotted)) {
+                    return Ok(format!("{}.{}", mapping.include, remainder));
+                } else if module_name == from_dotted {
+                    return Ok(mapping.include.clone());
+                }
+            }
+        }
+    }
+
+    // No normalization needed
+    Ok(module_name.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -120,7 +151,7 @@ mod tests {
 [tool.poetry]
 packages = [
     { include = "common", from = "common/" },
-    { include = "eva", from = "EVA/" },
+    { include = "mymodule", from = "MyModule/" },
 ]
 "#;
         fs::write(temp_dir.path().join("pyproject.toml"), pyproject_content).unwrap();
@@ -128,7 +159,7 @@ packages = [
         let internal_modules = get_internal_modules(temp_dir.path()).unwrap();
         assert_eq!(internal_modules.len(), 2);
         assert!(internal_modules.contains("common"));
-        assert!(internal_modules.contains("eva"));
+        assert!(internal_modules.contains("mymodule"));
     }
 
     #[test]
@@ -138,7 +169,7 @@ packages = [
 [tool.poetry]
 packages = [
     { include = "common", from = "common/" },
-    { include = "eva", from = "EVA/" },
+    { include = "mymodule", from = "MyModule/" },
 ]
 "#;
         fs::write(temp_dir.path().join("pyproject.toml"), pyproject_content).unwrap();

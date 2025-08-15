@@ -91,7 +91,15 @@ fn resolve_module_identifier(
     };
 
     let canonical_path = match origin {
-        ModuleOrigin::Internal => module_name.to_string(),
+        ModuleOrigin::Internal => {
+            // Apply the same normalization used for source modules
+            let normalized = crate::pyproject::normalize_module_name(module_name, project_root)
+                .unwrap_or_else(|_| module_name.to_string());
+            if module_name.contains("xai_single_cell") && module_name != normalized {
+                println!("IMPORT NORMALIZATION: '{}' -> '{}'", module_name, normalized);
+            }
+            normalized
+        }
         _ => extract_root_module(module_name).to_string(),
     };
 

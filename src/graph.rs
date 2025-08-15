@@ -144,25 +144,11 @@ impl fmt::Display for DependencyGraph {
         modules.sort_by(|a, b| a.canonical_path.cmp(&b.canonical_path));
 
         for module in modules {
-            // Only show internal modules as main nodes
             if module.origin != ModuleOrigin::Internal {
                 continue;
             }
-
             let dependencies = self.get_dependencies(module).unwrap_or_default();
-            if !dependencies.is_empty() {
-                let dep_list: Vec<String> = dependencies
-                    .iter()
-                    .map(|dep| match dep.origin {
-                        ModuleOrigin::Internal => format!("I::{}", dep.canonical_path),
-                        ModuleOrigin::External => format!("E::{}", dep.canonical_path),
-                        ModuleOrigin::Builtin => format!("B::{}", dep.canonical_path),
-                    })
-                    .collect();
-                writeln!(f, "{} -> [{}]", module.canonical_path, dep_list.join(", "))?;
-            } else {
-                writeln!(f, "{} (no deps)", module.canonical_path)?;
-            }
+            writeln!(f, "{} -> ({} deps)", module.canonical_path, dependencies.len())?;
         }
 
         Ok(())

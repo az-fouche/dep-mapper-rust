@@ -4,7 +4,7 @@ Rust CLI tool to analyze Python codebases and understand module dependencies.
 
 ## Target
 - **Language**: Python 3.10, ~100k lines
-- **Code base path:** /Users/af/Documents/python/ScientaLab/
+- **Code base path:** /path/to/python/project/
 - **Analysis**: Static imports only (no dynamic imports)
 - **Crates**: `rustpython-parser`, `clap`, `petgraph`, `walkdir`, `anyhow`
 

@@ -144,7 +144,6 @@ pub fn analyze_python_file_with_package(
         origin: ModuleOrigin::Internal,
         canonical_path: module_name,
     };
-
     Ok((module_id, dependencies))
 }
 
@@ -155,7 +154,7 @@ pub fn analyze_python_file_with_package(
 /// - `/project/main.py` -> `main`
 /// - `/project/package/module.py` -> `package.module`
 /// - `/project/package/__init__.py` -> `package`
-/// - `/project/JOHN/rna/rna/data_processing/binner.py` -> `rna.data_processing.binner`
+/// - `/project/MODULE/sub/sub/data_processing/binner.py` -> `sub.data_processing.binner`
 fn compute_module_name(
     file_path: &Path,
     project_root: &Path,
@@ -193,40 +192,14 @@ fn compute_module_name(
     let full_name = parts.join(".");
 
     // Normalize module name using pyproject.toml package definitions
-    normalize_module_name(&full_name, project_root)
-}
-
-/// Normalizes a module name using pyproject.toml package definitions.
-/// For example, transforms "JOHN.rna.rna.data_processing.binner" -> "rna.data_processing.binner"
-fn normalize_module_name(
-    module_name: &str,
-    project_root: &Path,
-) -> Result<String, Box<dyn std::error::Error>> {
-    // Get package mappings from pyproject.toml
-    let mappings = crate::pyproject::get_package_mappings(project_root)?;
-
-    // For each package mapping, check if the module name matches the expected path
-    for mapping in &mappings {
-        if let Some(from_path) = &mapping.from {
-            // Convert "JOHN/rna" to "JOHN.rna"
-            let from_dotted = from_path.replace('/', ".");
-
-            // Check if module starts with the "from" path
-            if module_name.starts_with(&from_dotted) {
-                // Strip the "from" path and replace with package name
-                // e.g., "JOHN.rna.rna.data_processing.binner" -> "rna.data_processing.binner"
-                if let Some(remainder) = module_name.strip_prefix(&format!("{}.", from_dotted)) {
-                    return Ok(format!("{}.{}", mapping.include, remainder));
-                } else if module_name == from_dotted {
-                    return Ok(mapping.include.clone());
-                }
-            }
-        }
+    let normalized = crate::pyproject::normalize_module_name(&full_name, project_root)
+        .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+    if full_name.contains("xai_single_cell") && full_name != normalized {
+        println!("SOURCE NORMALIZATION: '{}' -> '{}'", full_name, normalized);
     }
-
-    // No normalization needed
-    Ok(module_name.to_string())
+    Ok(normalized)
 }
+
 
 #[cfg(test)]
 mod tests {
