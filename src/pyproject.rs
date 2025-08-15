@@ -78,9 +78,9 @@ impl PyProjectParser {
         let packages = self.get_package_info();
 
         for package in packages {
-            let from_dotted = package.directory.replace('/', ".");
+            let from_dotted = package.directory.trim_end_matches('/').replace('/', ".");
 
-            if module_name.starts_with(&from_dotted) {
+            if module_name.starts_with(&format!("{}.", from_dotted)) {
                 if let Some(remainder) = module_name.strip_prefix(&format!("{}.", from_dotted)) {
                     // Check if remainder already starts with the package name (common package/package/ structure)
                     if remainder.starts_with(&format!("{}.", package.name)) {
