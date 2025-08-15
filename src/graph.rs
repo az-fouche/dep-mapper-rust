@@ -108,6 +108,33 @@ impl DependencyGraph {
     pub fn all_modules(&self) -> impl Iterator<Item = &ModuleIdentifier> {
         self.graph.node_weights()
     }
+
+    /// Returns a string representation of the dependency graph.
+    pub fn to_string(&self) -> String {
+        let mut result = format!("--- Dependency Graph ---\n");
+        result.push_str(&format!("  Modules: {}\n", self.module_count()));
+        result.push_str(&format!("  Dependencies: {}\n\n", self.dependency_count()));
+        
+        let mut modules: Vec<_> = self.all_modules().collect();
+        modules.sort_by(|a, b| a.canonical_path.cmp(&b.canonical_path));
+        
+        for module in modules {
+            result.push_str(&format!("Module: {} ({:?})\n", module.canonical_path, module.origin));
+            
+            let dependencies = self.get_dependencies(module);
+            if !dependencies.is_empty() {
+                result.push_str("  Dependencies:\n");
+                for dep in dependencies {
+                    result.push_str(&format!("    → {} ({:?})\n", dep.canonical_path, dep.origin));
+                }
+            } else {
+                result.push_str("  No dependencies\n");
+            }
+            result.push_str("\n");
+        }
+        
+        result
+    }
 }
 
 #[cfg(test)]

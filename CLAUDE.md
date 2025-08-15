@@ -4,6 +4,7 @@ Rust CLI tool to analyze Python codebases and understand module dependencies.
 
 ## Target
 - **Language**: Python 3.10, ~100k lines
+- **Code base path:** /Users/af/Documents/python/ScientaLab/
 - **Analysis**: Static imports only (no dynamic imports)
 - **Crates**: `rustpython-parser`, `clap`, `petgraph`, `walkdir`, `anyhow`
 
@@ -33,3 +34,4 @@ cargo clippy && cargo fmt
 - **Fail fast on invariant violations**: Return errors for invalid states instead of silently creating inconsistent data
 - **Use containers for convoluted return types**: When functions return complex tuples like `(Vec<ImportInfo>, DependencyGraph, ModuleIdentifier)`, create a simple container struct instead
 - **Don't add new types if existing ones suffice**: Before creating a new enum or struct, check if an existing type already captures what you need. Often the core data is already modeled elsewhere
+- **Avoid what/how comments**: Don't add comments that explain what the code does or how it works. Code should be self-explanatory through clear naming and structure. Only add comments for business logic context or why decisions were made.
