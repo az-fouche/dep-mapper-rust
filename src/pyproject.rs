@@ -17,6 +17,30 @@ pub struct PyProjectParser {
     package_info: OnceLock<Vec<PackageInfo>>,
 }
 
+/// Filters out packages whose paths are contained within other packages' paths.
+/// If module A's path is contained within module B's path, module A is ignored.
+fn filter_contained_packages(mut packages: Vec<PackageInfo>) -> Vec<PackageInfo> {
+    packages.sort_by(|a, b| a.directory.len().cmp(&b.directory.len()));
+    
+    let mut filtered = Vec::new();
+    
+    for package in packages {
+        let is_contained = filtered.iter().any(|existing: &PackageInfo| {
+            let existing_path = existing.directory.trim_end_matches('/');
+            let package_path = package.directory.trim_end_matches('/');
+            
+            package_path.starts_with(&format!("{}/", existing_path)) ||
+            (package_path.len() > existing_path.len() && package_path.starts_with(existing_path))
+        });
+        
+        if !is_contained {
+            filtered.push(package);
+        }
+    }
+    
+    filtered
+}
+
 impl PyProjectParser {
     pub fn new(project_root: &Path) -> Self {
         Self {
@@ -59,7 +83,7 @@ impl PyProjectParser {
             }
         }
 
-        Ok(packages)
+        Ok(filter_contained_packages(packages))
     }
 
     pub fn get_package_info(&self) -> &Vec<PackageInfo> {
@@ -203,6 +227,31 @@ packages = [
         assert!(parser.is_internal_module("common"));
         assert!(parser.is_internal_module("common.utils"));
         assert!(!parser.is_internal_module("numpy"));
+    }
+
+    #[test]
+    fn test_filter_contained_packages() {
+        let packages = vec![
+            PackageInfo {
+                name: "medcat".to_string(),
+                directory: "ehr_data_formatter/medcat/".to_string(),
+            },
+            PackageInfo {
+                name: "ehr_data_formatter".to_string(),
+                directory: "ehr_data_formatter/".to_string(),
+            },
+            PackageInfo {
+                name: "other".to_string(),
+                directory: "other/".to_string(),
+            },
+        ];
+
+        let filtered = filter_contained_packages(packages);
+        
+        assert_eq!(filtered.len(), 2);
+        assert!(filtered.iter().any(|p| p.name == "ehr_data_formatter"));
+        assert!(filtered.iter().any(|p| p.name == "other"));
+        assert!(!filtered.iter().any(|p| p.name == "medcat"));
     }
 
     #[test]
