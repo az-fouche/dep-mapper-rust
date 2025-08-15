@@ -6,6 +6,7 @@ A Rust CLI tool for analyzing Python codebases and mapping module dependencies.
 - **Target**: Python 3.10 codebases (~100k lines)
 - **Analysis**: Static imports only (excludes dynamic imports)
 - **Dependencies**: `rustpython-parser`, `clap`, `petgraph`, `walkdir`, `anyhow`
+- **Features**: Are described in ENHANCED_FEATURES_SPEC.md
 
 ## Development
 ```bash

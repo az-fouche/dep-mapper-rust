@@ -16,7 +16,7 @@ The existing tool provides:
 
 ### 1. Core Analysis Commands (Human-Oriented)
 
-#### 1.1 Impact Analysis
+#### 1.1 Impact Analysis (done)
 **Command**: `dep-mapper impact MODULE_NAME`
 **Purpose**: Identify all modules that depend on the specified module (blast radius analysis)
 **Use Case**: Before refactoring a module, understand which other modules will be affected
