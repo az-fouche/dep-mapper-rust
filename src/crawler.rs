@@ -1,17 +1,18 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use walkdir::WalkDir;
 use crate::imports::{extract_module_dependencies_with_context, ModuleIdentifier, ModuleOrigin};
 use crate::graph::DependencyGraph;
 
-/// Builds a dependency graph from all Python files in a directory (non-recursive).
+/// Builds a dependency graph from all Python files in a directory (recursive).
 pub fn build_directory_dependency_graph(dir_path: &Path) -> Result<DependencyGraph, Box<dyn std::error::Error>> {
-    let python_files = analyze_python_directory(dir_path)?;
+    let python_files = analyze_python_directory_recursive(dir_path)?;
     let mut graph = DependencyGraph::new();
     
     for file_path in &python_files {
-        match analyze_python_file(file_path) {
-            Ok((module_id, dependencies, _)) => {
-                graph.add_module(module_id.clone())?;
+        match analyze_python_file_with_package(file_path, dir_path) {
+            Ok((module_id, dependencies)) => {
+                graph.add_module(module_id.clone()).ok(); // Ignore duplicates - module might be added as dependency first
                 for dep in &dependencies {
                     graph.add_module(dep.clone()).ok(); // Ignore duplicates
                     graph.add_dependency(&module_id, dep)?;
@@ -52,8 +53,36 @@ pub fn analyze_python_directory(dir_path: &Path) -> Result<Vec<std::path::PathBu
     Ok(python_files)
 }
 
-/// Analyzes a single Python file and returns its module info, dependencies, and a single-file graph.
-pub fn analyze_python_file(file_path: &Path) -> Result<(ModuleIdentifier, Vec<ModuleIdentifier>, DependencyGraph), Box<dyn std::error::Error>> {
+/// Discovers all Python files in a directory and its subdirectories (recursive).
+pub fn analyze_python_directory_recursive(dir_path: &Path) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
+    if !dir_path.is_dir() {
+        return Err(format!("Path '{}' is not a directory", dir_path.display()).into());
+    }
+    
+    let mut python_files = Vec::new();
+    
+    for entry in WalkDir::new(dir_path)
+        .follow_links(false)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+    {
+        let path = entry.path();
+        if let Some(extension) = path.extension() {
+            if extension == "py" {
+                python_files.push(path.to_path_buf());
+            }
+        }
+    }
+    
+    // Sort files for consistent output
+    python_files.sort();
+    
+    Ok(python_files)
+}
+
+/// Analyzes a single Python file and returns the module identifier and its dependencies.
+pub fn analyze_python_file(file_path: &Path) -> Result<(ModuleIdentifier, Vec<ModuleIdentifier>), Box<dyn std::error::Error>> {
     let python_code = fs::read_to_string(file_path)?;
     let current_dir = std::env::current_dir()?;
     let dependencies = extract_module_dependencies_with_context(&python_code, file_path, &current_dir)?;
@@ -69,15 +98,62 @@ pub fn analyze_python_file(file_path: &Path) -> Result<(ModuleIdentifier, Vec<Mo
         canonical_path: module_name,
     };
     
-    // Create graph with module and dependencies
-    let mut graph = DependencyGraph::new();
-    graph.add_module(module_id.clone())?;
-    for dep in &dependencies {
-        graph.add_module(dep.clone()).ok(); // Ignore duplicates
-        graph.add_dependency(&module_id, dep)?;
+    Ok((module_id, dependencies))
+}
+
+/// Analyzes a single Python file with package context and returns module info and dependencies.
+pub fn analyze_python_file_with_package(file_path: &Path, project_root: &Path) -> Result<(ModuleIdentifier, Vec<ModuleIdentifier>), Box<dyn std::error::Error>> {
+    let python_code = fs::read_to_string(file_path)?;
+    let dependencies = extract_module_dependencies_with_context(&python_code, file_path, project_root)?;
+    
+    // Create module identifier with proper package path
+    let module_name = compute_module_name(file_path, project_root)?;
+    let module_id = ModuleIdentifier {
+        origin: ModuleOrigin::Internal,
+        canonical_path: module_name,
+    };
+    
+    Ok((module_id, dependencies))
+}
+
+/// Computes the Python module name from file path relative to project root.
+/// 
+/// Examples:
+/// - `/project/main.py` -> `main`
+/// - `/project/package/module.py` -> `package.module`
+/// - `/project/package/__init__.py` -> `package`
+/// - `/project/deep/nested/module.py` -> `deep.nested.module`
+fn compute_module_name(file_path: &Path, project_root: &Path) -> Result<String, Box<dyn std::error::Error>> {
+    let relative_path = file_path.strip_prefix(project_root)
+        .map_err(|_| format!("File path '{}' is not within project root '{}'", 
+                           file_path.display(), project_root.display()))?;
+    
+    let mut parts = Vec::new();
+    
+    // Add all directory components from the relative path
+    for component in relative_path.components() {
+        if let std::path::Component::Normal(name) = component {
+            if let Some(name_str) = name.to_str() {
+                // For files, check if it's a .py file and handle accordingly
+                if name_str.ends_with(".py") {
+                    let file_stem = name_str.strip_suffix(".py").unwrap();
+                    // Only add if it's not __init__.py
+                    if file_stem != "__init__" {
+                        parts.push(file_stem.to_string());
+                    }
+                } else {
+                    // It's a directory component
+                    parts.push(name_str.to_string());
+                }
+            }
+        }
     }
     
-    Ok((module_id, dependencies, graph))
+    if parts.is_empty() {
+        return Err("Could not determine module name from file path".into());
+    }
+    
+    Ok(parts.join("."))
 }
 
 #[cfg(test)]
@@ -151,7 +227,7 @@ mod tests {
         let result = analyze_python_file(&file_path);
         assert!(result.is_ok());
         
-        let (module_id, dependencies, graph) = result.unwrap();
+        let (module_id, dependencies) = result.unwrap();
         assert_eq!(module_id.canonical_path, "test_module");
         assert_eq!(module_id.origin, ModuleOrigin::Internal);
         
@@ -159,9 +235,6 @@ mod tests {
         let dep_names: Vec<&str> = dependencies.iter().map(|d| d.canonical_path.as_str()).collect();
         assert!(dep_names.contains(&"os"));
         assert!(dep_names.contains(&"sys"));
-        
-        assert_eq!(graph.module_count(), 3); // test_module + os + sys
-        assert_eq!(graph.dependency_count(), 2); // test_module -> os, test_module -> sys
     }
 
     #[test]
@@ -172,11 +245,9 @@ mod tests {
         let result = analyze_python_file(&file_path);
         assert!(result.is_ok());
         
-        let (module_id, dependencies, graph) = result.unwrap();
+        let (module_id, dependencies) = result.unwrap();
         assert_eq!(module_id.canonical_path, "simple");
         assert_eq!(dependencies.len(), 0);
-        assert_eq!(graph.module_count(), 1);
-        assert_eq!(graph.dependency_count(), 0);
     }
 
     #[test]
@@ -193,7 +264,7 @@ import numpy as np
         let result = analyze_python_file(&file_path);
         assert!(result.is_ok());
         
-        let (module_id, dependencies, _) = result.unwrap();
+        let (module_id, dependencies) = result.unwrap();
         assert_eq!(module_id.canonical_path, "complex");
         
         let dep_names: Vec<&str> = dependencies.iter().map(|d| d.canonical_path.as_str()).collect();
@@ -286,5 +357,75 @@ import numpy as np
         let nonexistent_path = Path::new("/nonexistent/directory");
         let result = build_directory_dependency_graph(nonexistent_path);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_analyze_python_directory_recursive_nested() {
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let dir_path = temp_dir.path();
+        
+        // Create nested structure
+        fs::create_dir_all(dir_path.join("package/subpackage")).unwrap();
+        create_temp_python_file(dir_path, "main.py", "import os");
+        create_temp_python_file(&dir_path.join("package"), "module.py", "import sys");
+        create_temp_python_file(&dir_path.join("package/subpackage"), "deep.py", "import json");
+        create_temp_python_file(&dir_path.join("package"), "__init__.py", "");
+        
+        let result = analyze_python_directory_recursive(dir_path);
+        assert!(result.is_ok());
+        let files = result.unwrap();
+        
+        assert_eq!(files.len(), 4);
+        let filenames: Vec<String> = files.iter()
+            .map(|f| f.strip_prefix(dir_path).unwrap().to_string_lossy().to_string())
+            .collect();
+        
+        assert!(filenames.contains(&"main.py".to_string()));
+        assert!(filenames.contains(&"package/module.py".to_string()));
+        assert!(filenames.contains(&"package/__init__.py".to_string()));
+        assert!(filenames.contains(&"package/subpackage/deep.py".to_string()));
+    }
+
+    #[test]
+    fn test_compute_module_name() {
+        let project_root = Path::new("/project");
+        
+        // Test simple file
+        let file_path = Path::new("/project/main.py");
+        assert_eq!(compute_module_name(file_path, project_root).unwrap(), "main");
+        
+        // Test package module
+        let file_path = Path::new("/project/package/module.py");
+        assert_eq!(compute_module_name(file_path, project_root).unwrap(), "package.module");
+        
+        // Test __init__.py
+        let file_path = Path::new("/project/package/__init__.py");
+        assert_eq!(compute_module_name(file_path, project_root).unwrap(), "package");
+        
+        // Test deeply nested module
+        let file_path = Path::new("/project/deep/nested/module.py");
+        assert_eq!(compute_module_name(file_path, project_root).unwrap(), "deep.nested.module");
+    }
+
+    #[test]
+    fn test_analyze_python_file_with_package() {
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let project_root = temp_dir.path();
+        
+        // Create nested structure
+        fs::create_dir_all(project_root.join("package")).unwrap();
+        let file_path = create_temp_python_file(&project_root.join("package"), "module.py", "import os\nimport sys");
+        
+        let result = analyze_python_file_with_package(&file_path, project_root);
+        assert!(result.is_ok());
+        
+        let (module_id, dependencies) = result.unwrap();
+        assert_eq!(module_id.canonical_path, "package.module");
+        assert_eq!(module_id.origin, ModuleOrigin::Internal);
+        
+        assert_eq!(dependencies.len(), 2);
+        let dep_names: Vec<&str> = dependencies.iter().map(|d| d.canonical_path.as_str()).collect();
+        assert!(dep_names.contains(&"os"));
+        assert!(dep_names.contains(&"sys"));
     }
 }

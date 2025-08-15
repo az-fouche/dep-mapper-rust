@@ -112,25 +112,32 @@ impl DependencyGraph {
     /// Returns a string representation of the dependency graph.
     pub fn to_string(&self) -> String {
         let mut result = format!("--- Dependency Graph ---\n");
-        result.push_str(&format!("  Modules: {}\n", self.module_count()));
-        result.push_str(&format!("  Dependencies: {}\n\n", self.dependency_count()));
+        result.push_str(&format!("Modules: {}, Dependencies: {}\n\n", self.module_count(), self.dependency_count()));
         
         let mut modules: Vec<_> = self.all_modules().collect();
         modules.sort_by(|a, b| a.canonical_path.cmp(&b.canonical_path));
         
         for module in modules {
-            result.push_str(&format!("Module: {} ({:?})\n", module.canonical_path, module.origin));
+            let prefix = match module.origin {
+                crate::imports::ModuleOrigin::Internal => "I::",
+                crate::imports::ModuleOrigin::External => "E::",
+                crate::imports::ModuleOrigin::Builtin => "B::",
+            };
             
             let dependencies = self.get_dependencies(module);
             if !dependencies.is_empty() {
-                result.push_str("  Dependencies:\n");
-                for dep in dependencies {
-                    result.push_str(&format!("    → {} ({:?})\n", dep.canonical_path, dep.origin));
-                }
+                let dep_list: Vec<String> = dependencies.iter().map(|dep| {
+                    let dep_prefix = match dep.origin {
+                        crate::imports::ModuleOrigin::Internal => "I::",
+                        crate::imports::ModuleOrigin::External => "E::",
+                        crate::imports::ModuleOrigin::Builtin => "B::",
+                    };
+                    format!("{}{}", dep_prefix, dep.canonical_path)
+                }).collect();
+                result.push_str(&format!("{}{} -> [{}]\n", prefix, module.canonical_path, dep_list.join(", ")));
             } else {
-                result.push_str("  No dependencies\n");
+                result.push_str(&format!("{}{}\n", prefix, module.canonical_path));
             }
-            result.push_str("\n");
         }
         
         result
