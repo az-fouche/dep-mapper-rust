@@ -1,8 +1,11 @@
 use anyhow::Result;
 use std::path::{Path, PathBuf};
+use std::cell::RefCell;
 use std::sync::OnceLock;
 
-static PARSER: OnceLock<PyProjectParser> = OnceLock::new();
+thread_local! {
+    static PARSER: RefCell<Option<PyProjectParser>> = RefCell::new(None);
+}
 
 /// Package information from pyproject.toml
 #[derive(Debug, Clone)]
@@ -12,6 +15,7 @@ pub struct PackageInfo {
 }
 
 /// Parser for pyproject.toml with project context
+#[derive(Clone)]
 pub struct PyProjectParser {
     project_root: PathBuf,
     package_info: OnceLock<Vec<PackageInfo>>,
@@ -179,29 +183,53 @@ fn normalize_dependency_name(dep_name: &str) -> String {
     dep_name.to_lowercase().replace('_', "-")
 }
 
-/// Initialize the module-level parser with project root
+/// Initialize the thread-local parser with project root
 pub fn init(project_root: &Path) {
-    PARSER.get_or_init(|| PyProjectParser::new(project_root));
+    PARSER.with(|parser| {
+        *parser.borrow_mut() = Some(PyProjectParser::new(project_root));
+    });
+}
+
+#[cfg(test)]
+pub fn init_for_test(project_root: &Path) {
+    init(project_root);
+}
+
+#[cfg(test)]
+pub fn reset_for_test() {
+    PARSER.with(|parser| {
+        *parser.borrow_mut() = None;
+    });
 }
 
 pub fn is_internal_module(module_name: &str) -> bool {
-    PARSER
-        .get()
-        .map_or(false, |parser| parser.is_internal_module(module_name))
+    PARSER.with(|parser| {
+        if let Some(p) = parser.borrow().as_ref() {
+            p.is_internal_module(module_name)
+        } else {
+            false
+        }
+    })
 }
 
 pub fn normalize_module_name(module_name: &str) -> Result<String> {
-    match PARSER.get() {
-        Some(parser) => parser.normalize_module_name(module_name),
-        None => Ok(module_name.to_string()),
-    }
+    PARSER.with(|parser| {
+        if let Some(p) = parser.borrow().as_ref() {
+            p.normalize_module_name(module_name)
+        } else {
+            Ok(module_name.to_string())
+        }
+    })
 }
 
 pub fn get_declared_dependencies() -> Result<Vec<String>> {
-    match PARSER.get() {
-        Some(parser) => parser.get_declared_dependencies(),
-        None => Ok(Vec::new()),
-    }
+    PARSER.with(|parser| {
+        if let Some(p) = parser.borrow().as_ref() {
+            p.get_declared_dependencies()
+        } else {
+            Ok(Vec::new())
+        }
+    })
 }
 
 /// Computes the Python module name from file path relative to project root.
@@ -320,6 +348,7 @@ packages = [
     #[test]
     fn test_compute_module_name() {
         let temp_dir = TempDir::new().unwrap();
+        reset_for_test();
         init(temp_dir.path());
 
         let project_root = temp_dir.path();
