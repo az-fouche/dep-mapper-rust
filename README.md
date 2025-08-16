@@ -40,25 +40,34 @@ cd pydep-mapper-rust
 cargo build --release
 ```
 
-The binary will be available at `target/release/pydep-mapper`.
+### Install with cargo
+
+```bash
+cargo install pydep-mapper
+```
 
 ## Quick Start
 
-```bash
-# Analyze a Python codebase
-pydep-mapper analyze /path/to/python/project
+The commands should be launched at the root of your python project, where your `pyproject.toml` is located.
 
-# Check what modules depend on a specific module
+```bash
+# Check what modules depend on a specific module (blast radius analysis)
 pydep-mapper impact src.payments.processor
 
-# Find circular dependencies
+# Check what modules a specific module depends on
+pydep-mapper dependencies src.payments.processor
+
+# Find all circular dependencies
 pydep-mapper cycles
 
-# List external dependencies
+# Analyze external dependencies
 pydep-mapper external
 
-# Show modules with most dependents (pressure points)
+# Show modules with most dependencies (pressure points), can be combined with grep or head
 pydep-mapper pressure
+
+# General analysis of a Python codebase
+pydep-mapper analyze
 ```
 
 ## Usage Examples
@@ -94,46 +103,14 @@ pydep-mapper dependencies src.payments.processor
 # Check for circular dependencies
 pydep-mapper cycles
 
-# Get overall metrics
+# Get overall metrics (coming soon™)
 pydep-mapper metrics
 
-# Find potential dead code
+# Find potential dead code (coming soon™)
 pydep-mapper orphans
 ```
 
-### AI Agent Integration
-```bash
-# Get context files for AI agents
-pydep-mapper agent-context src.payments.processor --format json
-
-# Assess refactoring risk
-pydep-mapper risk-assess src.models.user
-
-# Validate proposed dependency changes
-pydep-mapper validate-change src.api.orders src.models.order
-```
-
-## Command Reference
-
-| Command | Purpose | Example |
-|---------|---------|---------|
-| `analyze` | Basic dependency analysis | `pydep-mapper analyze .` |
-| `impact` | Show dependent modules | `pydep-mapper impact MODULE` |
-| `dependencies` | Show module dependencies | `pydep-mapper dependencies MODULE` |
-| `cycles` | Detect circular dependencies | `pydep-mapper cycles` |
-| `orphans` | Find dead code | `pydep-mapper orphans` |
-| `external` | List external dependencies | `pydep-mapper external` |
-| `pressure` | Find high-dependency modules | `pydep-mapper pressure` |
-| `metrics` | Codebase health overview | `pydep-mapper metrics` |
-
-### Global Flags
-- `--format FORMAT` - Output format: `text`, `json`, `csv`, `dot`, `agent-md`, `cursor-context`
-- `--filter PATTERN` - Include only modules matching pattern
-- `--exclude-test` - Exclude test modules
-- `--exclude-external` - Exclude external dependencies
-- `--limit N` - Limit number of results
-
-## Architecture
+### AI Agent Integration (coming soon™)
 
 ### Parser Features
 - **Static Analysis**: Uses `rustpython-parser` for AST-based parsing
