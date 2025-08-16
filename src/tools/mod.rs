@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod changeset;
 pub mod common;
 pub mod cycles;
 pub mod dependencies;

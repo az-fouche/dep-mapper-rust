@@ -8,6 +8,12 @@ Health Assessment:
                          Output: Health score (0-100), metrics summary, issues found
                          Use: Get overall architecture quality assessment
 
+Change Planning:
+  changeset MODULE     → Analyze change impact and dependencies for safe refactoring
+                         Example: pydep-mapper changeset auth.models --scope both
+                         Output: Affected modules, dependencies, risk levels, test order
+                         Use: Plan changes, assess blast radius, optimize testing
+
 Exploration Commands:
   pressure             → Find critical modules by dependent count
                          Example: pydep-mapper pressure
@@ -39,6 +45,11 @@ Target Analysis Commands:
 Global Options:
   --root DIR           → Analyze specific directory (default: current dir)
                          Example: pydep-mapper --root /path/to/project pressure
+
+Changeset Scope Options:
+  --scope affected     → Show only what breaks if module changes
+  --scope dependencies → Show only what module depends on
+  --scope both         → Show both (default)
 
 Output Format: Hierarchical text with submodule counts, excludes test modules
 "#

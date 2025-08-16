@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 use pydep_mapper::crawler::build_directory_dependency_graph;
 use pydep_mapper::tools::agent::print_agent_documentation;
+use pydep_mapper::tools::changeset::{analyze_changeset, formatters as changeset_formatters, ChangesetScope};
 use pydep_mapper::tools::cycles::{detect_cycles, formatters as cycle_formatters};
 use pydep_mapper::tools::dependencies::{analyze_dependencies, formatters as dep_formatters};
 use pydep_mapper::tools::diagnose::{analyze_diagnose, formatters as diagnose_formatters};
@@ -39,6 +40,15 @@ enum Commands {
     Dependencies {
         /// Module name to analyze for dependencies
         module_name: String,
+    },
+
+    /// Analyze changeset impact and dependencies for safe refactoring
+    Changeset {
+        /// Module name to analyze for changeset
+        module_name: String,
+        /// Scope of analysis: affected, dependencies, or both (default: both)
+        #[arg(long, default_value = "both")]
+        scope: String,
     },
 
     /// Detect and report circular dependencies in the codebase
@@ -88,6 +98,14 @@ fn main() {
                 Ok(()) => {}
                 Err(e) => {
                     eprintln!("Error running dependencies analysis: {}", e);
+                }
+            }
+        }
+        Commands::Changeset { module_name, scope } => {
+            match run_changeset_analysis(dir_path, &module_name, &scope) {
+                Ok(()) => {}
+                Err(e) => {
+                    eprintln!("Error running changeset analysis: {}", e);
                 }
             }
         }
@@ -201,6 +219,22 @@ fn run_diagnose_analysis(dir_path: &Path) -> anyhow::Result<()> {
 
     // Output results as text
     print!("{}", diagnose_formatters::format_text(&result));
+
+    Ok(())
+}
+
+fn run_changeset_analysis(dir_path: &Path, module_name: &str, scope: &str) -> anyhow::Result<()> {
+    // Build the dependency graph
+    let graph = build_directory_dependency_graph(dir_path)?;
+
+    // Parse scope
+    let changeset_scope = ChangesetScope::from_str(scope);
+
+    // Run changeset analysis
+    let result = analyze_changeset(&graph, module_name, changeset_scope)?;
+
+    // Output results as text with grouping
+    print!("{}", changeset_formatters::format_text_grouped(&result));
 
     Ok(())
 }
