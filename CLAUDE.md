@@ -75,14 +75,17 @@ cargo run -- dependencies json
 ### Command Structure
 
 The CLI uses `clap` subcommands with this pattern:
-- `analyze` - Basic dependency graph analysis
+- `analyze` - Basic dependency graph analysis (being phased out)
 - `impact MODULE` - Show what depends on MODULE
 - `dependencies MODULE` - Show what MODULE depends on  
 - `cycles` - Detect circular dependencies
 - `pressure` - Find high-pressure modules (most dependents)
 - `external` - List external dependencies with usage stats
+- `agent` - Display token-optimized command documentation for agentic coding
 
 All commands support the `--root` flag to specify the directory to analyze (defaults to current directory).
+
+**Note**: When adding/removing CLI commands, always update `src/tools/agent.rs` to keep the agentic documentation current.
 
 ### Data Flow
 
@@ -146,6 +149,7 @@ When bugs occur, follow this process:
 3. Create formatter functions in submodule for text output
 4. Add to `src/tools/mod.rs` and wire into `main.rs` CLI commands
 5. Follow existing patterns in `impact.rs`, `cycles.rs`, etc.
+6. **IMPORTANT**: Update `src/tools/agent.rs` documentation to include the new command with examples and descriptions
 
 ### Extending Output Formats
 - Formatters are organized in submodules within each tool

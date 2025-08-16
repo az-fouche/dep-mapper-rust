@@ -7,6 +7,7 @@ use pydep_mapper::tools::external::{
 };
 use pydep_mapper::tools::impact::{analyze_impact, formatters};
 use pydep_mapper::tools::pressure::{analyze_pressure, formatters as pressure_formatters};
+use pydep_mapper::tools::agent::print_agent_documentation;
 use std::path::Path;
 
 #[derive(Parser)]
@@ -46,6 +47,9 @@ enum Commands {
 
     /// Analyze external dependencies across the codebase with frequency analysis
     External,
+
+    /// Display command documentation optimized for agentic coding workflows
+    Agent,
 }
 
 fn main() {
@@ -96,6 +100,9 @@ fn main() {
             Err(e) => {
                 eprintln!("Error running external analysis: {}", e);
             }
+        },
+        Commands::Agent => {
+            print_agent_documentation();
         },
     }
 }
