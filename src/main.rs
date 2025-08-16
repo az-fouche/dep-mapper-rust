@@ -3,6 +3,7 @@ use dep_mapper::crawler::build_directory_dependency_graph;
 use dep_mapper::tools::cycles::{detect_cycles, formatters as cycle_formatters};
 use dep_mapper::tools::dependencies::{analyze_dependencies, formatters as dep_formatters};
 use dep_mapper::tools::impact::{analyze_impact, formatters};
+use dep_mapper::tools::pressure::{analyze_pressure, formatters as pressure_formatters};
 use std::path::Path;
 
 #[derive(Parser)]
@@ -36,6 +37,9 @@ enum Commands {
 
     /// Detect and report circular dependencies in the codebase
     Cycles,
+
+    /// Identify modules with the highest number of dependents (pressure points)
+    Pressure,
 }
 
 fn main() {
@@ -73,6 +77,12 @@ fn main() {
             Ok(()) => {}
             Err(e) => {
                 eprintln!("Error running cycles analysis: {}", e);
+            }
+        },
+        Commands::Pressure => match run_pressure_analysis(dir_path) {
+            Ok(()) => {}
+            Err(e) => {
+                eprintln!("Error running pressure analysis: {}", e);
             }
         },
     }
@@ -113,6 +123,19 @@ fn run_cycles_analysis(dir_path: &Path) -> anyhow::Result<()> {
 
     // Output results as text with prefix grouping
     print!("{}", cycle_formatters::format_text_grouped(&result));
+
+    Ok(())
+}
+
+fn run_pressure_analysis(dir_path: &Path) -> anyhow::Result<()> {
+    // Build the dependency graph
+    let graph = build_directory_dependency_graph(dir_path)?;
+
+    // Run pressure analysis
+    let result = analyze_pressure(&graph)?;
+
+    // Output results as text
+    print!("{}", pressure_formatters::format_text(&result));
 
     Ok(())
 }
