@@ -1,5 +1,5 @@
-use dep_mapper::graph::{DependencyGraph, DependencyType};
-use dep_mapper::imports::{ModuleOrigin, extract_module_deps};
+use pydep_mapper::graph::{DependencyGraph, DependencyType};
+use pydep_mapper::imports::{ModuleOrigin, extract_module_deps};
 use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
@@ -29,7 +29,7 @@ fn test_full_workflow_with_test_py() {
 
     // Create a graph and verify functionality
     let mut graph = DependencyGraph::new();
-    let test_module = dep_mapper::imports::ModuleIdentifier {
+    let test_module = pydep_mapper::imports::ModuleIdentifier {
         origin: ModuleOrigin::Internal,
         canonical_path: "test".to_string(),
     };

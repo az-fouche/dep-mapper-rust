@@ -1,12 +1,12 @@
 use clap::{Parser, Subcommand};
-use dep_mapper::crawler::build_directory_dependency_graph;
-use dep_mapper::tools::cycles::{detect_cycles, formatters as cycle_formatters};
-use dep_mapper::tools::dependencies::{analyze_dependencies, formatters as dep_formatters};
-use dep_mapper::tools::external::{
+use pydep_mapper::crawler::build_directory_dependency_graph;
+use pydep_mapper::tools::cycles::{detect_cycles, formatters as cycle_formatters};
+use pydep_mapper::tools::dependencies::{analyze_dependencies, formatters as dep_formatters};
+use pydep_mapper::tools::external::{
     analyze_external_dependencies, formatters as external_formatters,
 };
-use dep_mapper::tools::impact::{analyze_impact, formatters};
-use dep_mapper::tools::pressure::{analyze_pressure, formatters as pressure_formatters};
+use pydep_mapper::tools::impact::{analyze_impact, formatters};
+use pydep_mapper::tools::pressure::{analyze_pressure, formatters as pressure_formatters};
 use std::path::Path;
 
 #[derive(Parser)]
@@ -53,7 +53,7 @@ fn main() {
     let dir_path = Path::new(&args.root);
 
     // Initialize the pyproject parser once
-    dep_mapper::pyproject::init(dir_path);
+    pydep_mapper::pyproject::init(dir_path);
 
     match args.command {
         Commands::Analyze => match build_directory_dependency_graph(dir_path) {
