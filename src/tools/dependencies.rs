@@ -70,7 +70,7 @@ pub fn analyze_dependencies(
 
     // Get dependencies analysis from the graph
     let (external_dependencies, internal_dependencies, total_count) =
-        get_dependencies_analysis(&graph, target_module)?;
+        get_dependencies_analysis(graph, target_module)?;
 
     Ok(DependencyAnalysisResult {
         target_module: target_module.canonical_path.clone(),

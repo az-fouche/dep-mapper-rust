@@ -102,7 +102,7 @@ pub fn analyze_impact(graph: &DependencyGraph, module_name: &str) -> Result<Impa
         .ok_or_else(|| anyhow::anyhow!("Module '{}' not found in dependency graph", module_name))?;
 
     // Get impact analysis from the graph
-    let (affected_modules, total_count) = get_impact_analysis(&graph, target_module)?;
+    let (affected_modules, total_count) = get_impact_analysis(graph, target_module)?;
 
     Ok(ImpactAnalysisResult {
         target_module: target_module.canonical_path.clone(),

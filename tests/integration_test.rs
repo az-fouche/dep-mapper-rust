@@ -12,7 +12,7 @@ fn test_full_workflow_with_test_py() {
 
     // Extract dependencies
     let dependencies =
-        extract_module_deps(&python_code).expect("Should be able to extract dependencies");
+        extract_module_deps(&python_code, None).expect("Should be able to extract dependencies");
 
     // Verify we found the expected dependencies
     assert_eq!(dependencies.len(), 5);
@@ -64,7 +64,7 @@ import requests
 from collections import defaultdict
 "#;
 
-    let modules = extract_module_deps(python_code).expect("Should parse correctly");
+    let modules = extract_module_deps(python_code, None).expect("Should parse correctly");
 
     // Check that modules are detected correctly
     for module in modules {

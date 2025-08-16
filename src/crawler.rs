@@ -143,7 +143,7 @@ pub fn analyze_python_directory_recursive(dir_path: &Path) -> Result<Vec<PathBuf
 /// Analyzes a single Python file and returns the module identifier and its dependencies.
 pub fn analyze_python_file(file_path: &Path) -> Result<(ModuleIdentifier, Vec<ModuleIdentifier>)> {
     let python_code = fs::read_to_string(file_path)?;
-    let dependencies = extract_module_deps(&python_code)?;
+    let dependencies = extract_module_deps(&python_code, None)?;
 
     // Create module identifier for this file
     let module_name = file_path
@@ -165,10 +165,13 @@ pub fn analyze_python_file_with_package(
     project_root: &Path,
 ) -> Result<(ModuleIdentifier, Vec<ModuleIdentifier>)> {
     let python_code = fs::read_to_string(file_path)?;
-    let dependencies = extract_module_deps(&python_code)?;
 
     // Create module identifier with proper package path
     let module_name = crate::pyproject::compute_module_name(file_path, project_root)?;
+
+    // Extract dependencies with current module context for relative import resolution
+    let dependencies = extract_module_deps(&python_code, Some(&module_name))?;
+
     let module_id = ModuleIdentifier {
         origin: ModuleOrigin::Internal,
         canonical_path: module_name,

@@ -52,7 +52,7 @@ pub fn detect_cycles(graph: &DependencyGraph) -> Result<CycleResult> {
 
     for module in graph.all_modules() {
         let idx = graph
-            .get_node_index(&module)
+            .get_node_index(module)
             .with_context(|| format!("Missing node index for {}", module.canonical_path))?;
         module_to_node.insert(module.canonical_path.clone(), idx);
         node_to_module.insert(idx, module.canonical_path.clone());

@@ -199,11 +199,10 @@ impl DependencyGraph {
                 if *edge.weight() == DependencyType::Contains {
                     continue;
                 }
-                if let Some(dependent_module) = self.graph.node_weight(edge.source()) {
-                    if seen_dependents.insert(dependent_module.clone()) {
+                if let Some(dependent_module) = self.graph.node_weight(edge.source())
+                    && seen_dependents.insert(dependent_module.clone()) {
                         result.push((dependent_module.clone(), edge.weight().clone()));
                     }
-                }
             }
         }
 
@@ -278,8 +277,8 @@ pub mod utils {
                 };
 
                 graph.add_module(parent_module.clone());
-                graph.add_dependency(&parent_module, &module, DependencyType::Contains)?;
-                graph.add_dependency(&module, &parent_module, DependencyType::IncludedIn)?;
+                graph.add_dependency(&parent_module, module, DependencyType::Contains)?;
+                graph.add_dependency(module, &parent_module, DependencyType::IncludedIn)?;
             }
         }
 
@@ -290,11 +289,7 @@ pub mod utils {
     ///
     /// Returns the immediate parent module path, or None if the module is top-level.
     pub fn get_direct_parent_module(module_path: &str) -> Option<String> {
-        if let Some(last_dot) = module_path.rfind('.') {
-            Some(module_path[..last_dot].to_string())
-        } else {
-            None
-        }
+        module_path.rfind('.').map(|last_dot| module_path[..last_dot].to_string())
     }
 
     /// Checks if `potential_ancestor` is an ancestor of `module_path` in the module hierarchy.
