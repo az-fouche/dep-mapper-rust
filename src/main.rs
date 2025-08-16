@@ -2,6 +2,9 @@ use clap::{Parser, Subcommand};
 use dep_mapper::crawler::build_directory_dependency_graph;
 use dep_mapper::tools::cycles::{detect_cycles, formatters as cycle_formatters};
 use dep_mapper::tools::dependencies::{analyze_dependencies, formatters as dep_formatters};
+use dep_mapper::tools::external::{
+    analyze_external_dependencies, formatters as external_formatters,
+};
 use dep_mapper::tools::impact::{analyze_impact, formatters};
 use dep_mapper::tools::pressure::{analyze_pressure, formatters as pressure_formatters};
 use std::path::Path;
@@ -40,6 +43,9 @@ enum Commands {
 
     /// Identify modules with the highest number of dependents (pressure points)
     Pressure,
+
+    /// Analyze external dependencies across the codebase with frequency analysis
+    External,
 }
 
 fn main() {
@@ -83,6 +89,12 @@ fn main() {
             Ok(()) => {}
             Err(e) => {
                 eprintln!("Error running pressure analysis: {}", e);
+            }
+        },
+        Commands::External => match run_external_analysis(dir_path) {
+            Ok(()) => {}
+            Err(e) => {
+                eprintln!("Error running external analysis: {}", e);
             }
         },
     }
@@ -136,6 +148,19 @@ fn run_pressure_analysis(dir_path: &Path) -> anyhow::Result<()> {
 
     // Output results as text
     print!("{}", pressure_formatters::format_text(&result));
+
+    Ok(())
+}
+
+fn run_external_analysis(dir_path: &Path) -> anyhow::Result<()> {
+    // Build the dependency graph
+    let graph = build_directory_dependency_graph(dir_path)?;
+
+    // Run external dependencies analysis
+    let result = analyze_external_dependencies(&graph)?;
+
+    // Output results as text with grouping
+    print!("{}", external_formatters::format_text_grouped(&result));
 
     Ok(())
 }

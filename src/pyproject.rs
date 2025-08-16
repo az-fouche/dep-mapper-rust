@@ -122,6 +122,61 @@ impl PyProjectParser {
 
         Ok(module_name.to_string())
     }
+
+    pub fn get_declared_dependencies(&self) -> Result<Vec<String>> {
+        let pyproject_path = self.project_root.join("pyproject.toml");
+
+        if !pyproject_path.exists() {
+            return Ok(Vec::new());
+        }
+
+        let content = std::fs::read_to_string(&pyproject_path)?;
+        let toml: toml::Value = toml::from_str(&content)?;
+
+        let mut dependencies = Vec::new();
+
+        // Parse [tool.poetry.dependencies]
+        if let Some(deps) = toml
+            .get("tool")
+            .and_then(|t| t.get("poetry"))
+            .and_then(|p| p.get("dependencies"))
+            .and_then(|d| d.as_table())
+        {
+            for (dep_name, _dep_spec) in deps {
+                if dep_name != "python" {
+                    dependencies.push(normalize_dependency_name(dep_name));
+                }
+            }
+        }
+
+        // Parse [tool.poetry.group.*.dependencies]
+        if let Some(groups) = toml
+            .get("tool")
+            .and_then(|t| t.get("poetry"))
+            .and_then(|p| p.get("group"))
+            .and_then(|g| g.as_table())
+        {
+            for (_group_name, group_config) in groups {
+                if let Some(group_deps) =
+                    group_config.get("dependencies").and_then(|d| d.as_table())
+                {
+                    for (dep_name, _dep_spec) in group_deps {
+                        dependencies.push(normalize_dependency_name(dep_name));
+                    }
+                }
+            }
+        }
+
+        dependencies.sort();
+        dependencies.dedup();
+        Ok(dependencies)
+    }
+}
+
+/// Normalizes dependency name from complex dependency specifications
+fn normalize_dependency_name(dep_name: &str) -> String {
+    // Handle underscores vs hyphens - convert to lowercase and use hyphens
+    dep_name.to_lowercase().replace('_', "-")
 }
 
 /// Initialize the module-level parser with project root
@@ -139,6 +194,13 @@ pub fn normalize_module_name(module_name: &str) -> Result<String> {
     match PARSER.get() {
         Some(parser) => parser.normalize_module_name(module_name),
         None => Ok(module_name.to_string()),
+    }
+}
+
+pub fn get_declared_dependencies() -> Result<Vec<String>> {
+    match PARSER.get() {
+        Some(parser) => parser.get_declared_dependencies(),
+        None => Ok(Vec::new()),
     }
 }
 
@@ -286,5 +348,39 @@ packages = [
             compute_module_name(&file_path, project_root).unwrap(),
             "package"
         );
+    }
+
+    #[test]
+    fn test_get_declared_dependencies() {
+        let temp_dir = TempDir::new().unwrap();
+        let pyproject_content = r#"
+[tool.poetry.dependencies]
+python = ">=3.10,<3.11"
+numpy = "^1.24.3"
+pandas = "^2.0.3"
+torch = { version = "2.3.0"}
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.3.1"
+jupyter = "^1.0.0"
+
+[tool.poetry.group.optional.dependencies]
+matplotlib = "^3.8.2"
+"#;
+        fs::write(temp_dir.path().join("pyproject.toml"), pyproject_content).unwrap();
+
+        let parser = PyProjectParser::new(temp_dir.path());
+        let deps = parser.get_declared_dependencies().unwrap();
+
+        assert!(deps.contains(&"numpy".to_string()));
+        assert!(deps.contains(&"pandas".to_string()));
+        assert!(deps.contains(&"torch".to_string()));
+        assert!(deps.contains(&"pytest".to_string()));
+        assert!(deps.contains(&"jupyter".to_string()));
+        assert!(deps.contains(&"matplotlib".to_string()));
+        assert!(!deps.contains(&"python".to_string()));
+
+        // Should be sorted and deduplicated
+        assert_eq!(deps.len(), 6);
     }
 }
