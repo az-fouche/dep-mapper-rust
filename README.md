@@ -36,29 +36,29 @@ A fast Rust CLI tool for analyzing Python codebases and mapping module dependenc
 ### Build from Source
 ```bash
 git clone <repository-url>
-cd dep-mapper-rust
+cd pydep-mapper-rust
 cargo build --release
 ```
 
-The binary will be available at `target/release/dep-mapper`.
+The binary will be available at `target/release/pydep-mapper`.
 
 ## Quick Start
 
 ```bash
 # Analyze a Python codebase
-dep-mapper analyze /path/to/python/project
+pydep-mapper analyze /path/to/python/project
 
 # Check what modules depend on a specific module
-dep-mapper impact src.payments.processor
+pydep-mapper impact src.payments.processor
 
 # Find circular dependencies
-dep-mapper cycles
+pydep-mapper cycles
 
 # List external dependencies
-dep-mapper external
+pydep-mapper external
 
 # Show modules with most dependents (pressure points)
-dep-mapper pressure
+pydep-mapper pressure
 ```
 
 ## Usage Examples
@@ -66,7 +66,7 @@ dep-mapper pressure
 ### Impact Analysis
 ```bash
 # See what breaks if you change this module
-dep-mapper impact src.payments.processor
+pydep-mapper impact src.payments.processor
 
 # Output:
 # Modules depending on 'src.payments.processor':
@@ -79,7 +79,7 @@ dep-mapper impact src.payments.processor
 ### Dependencies Inspection
 ```bash
 # See what a module depends on
-dep-mapper dependencies src.payments.processor
+pydep-mapper dependencies src.payments.processor
 
 # Output:
 # Dependencies of 'src.payments.processor':
@@ -92,39 +92,39 @@ dep-mapper dependencies src.payments.processor
 ### Architecture Health
 ```bash
 # Check for circular dependencies
-dep-mapper cycles
+pydep-mapper cycles
 
 # Get overall metrics
-dep-mapper metrics
+pydep-mapper metrics
 
 # Find potential dead code
-dep-mapper orphans
+pydep-mapper orphans
 ```
 
 ### AI Agent Integration
 ```bash
 # Get context files for AI agents
-dep-mapper agent-context src.payments.processor --format json
+pydep-mapper agent-context src.payments.processor --format json
 
 # Assess refactoring risk
-dep-mapper risk-assess src.models.user
+pydep-mapper risk-assess src.models.user
 
 # Validate proposed dependency changes
-dep-mapper validate-change src.api.orders src.models.order
+pydep-mapper validate-change src.api.orders src.models.order
 ```
 
 ## Command Reference
 
 | Command | Purpose | Example |
 |---------|---------|---------|
-| `analyze` | Basic dependency analysis | `dep-mapper analyze .` |
-| `impact` | Show dependent modules | `dep-mapper impact MODULE` |
-| `dependencies` | Show module dependencies | `dep-mapper dependencies MODULE` |
-| `cycles` | Detect circular dependencies | `dep-mapper cycles` |
-| `orphans` | Find dead code | `dep-mapper orphans` |
-| `external` | List external dependencies | `dep-mapper external` |
-| `pressure` | Find high-dependency modules | `dep-mapper pressure` |
-| `metrics` | Codebase health overview | `dep-mapper metrics` |
+| `analyze` | Basic dependency analysis | `pydep-mapper analyze .` |
+| `impact` | Show dependent modules | `pydep-mapper impact MODULE` |
+| `dependencies` | Show module dependencies | `pydep-mapper dependencies MODULE` |
+| `cycles` | Detect circular dependencies | `pydep-mapper cycles` |
+| `orphans` | Find dead code | `pydep-mapper orphans` |
+| `external` | List external dependencies | `pydep-mapper external` |
+| `pressure` | Find high-dependency modules | `pydep-mapper pressure` |
+| `metrics` | Codebase health overview | `pydep-mapper metrics` |
 
 ### Global Flags
 - `--format FORMAT` - Output format: `text`, `json`, `csv`, `dot`, `agent-md`, `cursor-context`

@@ -17,13 +17,13 @@ The existing tool provides:
 ### 1. Core Analysis Commands (Human-Oriented)
 
 #### 1.1 Impact Analysis (done)
-**Command**: `dep-mapper impact MODULE_NAME`
+**Command**: `pydep-mapper impact MODULE_NAME`
 **Purpose**: Identify all modules that depend on the specified module (blast radius analysis)
 **Use Case**: Before refactoring a module, understand which other modules will be affected
 **Output**: List of dependent modules with dependency types
 **Example**:
 ```bash
-dep-mapper impact src.payments.processor
+pydep-mapper impact src.payments.processor
 # Output:
 # Modules depending on 'src.payments.processor':
 # - src.api.billing (Imports)
@@ -33,13 +33,13 @@ dep-mapper impact src.payments.processor
 ```
 
 #### 1.2 Module Dependencies
-**Command**: `dep-mapper dependencies MODULE_NAME`
+**Command**: `pydep-mapper dependencies MODULE_NAME`
 **Purpose**: Show all dependencies of a specific module
 **Use Case**: Understanding what a module needs to function, useful for module extraction or testing
 **Output**: List of dependencies with types and origins (internal/external)
 **Example**:
 ```bash
-dep-mapper dependencies src.payments.processor
+pydep-mapper dependencies src.payments.processor
 # Output:
 # Dependencies of 'src.payments.processor':
 # - stripe (External - Imports)
@@ -49,13 +49,13 @@ dep-mapper dependencies src.payments.processor
 ```
 
 #### 1.3 Circular Dependency Detection
-**Command**: `dep-mapper cycles`
+**Command**: `pydep-mapper cycles`
 **Purpose**: Detect and report circular dependencies in the codebase
 **Use Case**: Identify architectural problems that make code hard to test and maintain
 **Output**: List of circular dependency chains with suggested fixes
 **Example**:
 ```bash
-dep-mapper cycles
+pydep-mapper cycles
 # Output:
 # Circular dependencies found:
 # Cycle 1: src.models.user → src.services.auth → src.models.user
@@ -64,13 +64,13 @@ dep-mapper cycles
 ```
 
 #### 1.4 Dead Code Detection
-**Command**: `dep-mapper orphans`
+**Command**: `pydep-mapper orphans`
 **Purpose**: Find modules with no dependents (potential dead code)
 **Use Case**: Identify modules that can be safely removed during cleanup
 **Output**: List of modules with no incoming dependencies
 **Example**:
 ```bash
-dep-mapper orphans
+pydep-mapper orphans
 # Output:
 # Orphaned modules (no dependents):
 # - src.legacy.old_processor (0 dependents)
@@ -79,13 +79,13 @@ dep-mapper orphans
 ```
 
 #### 1.5 External Dependencies Audit
-**Command**: `dep-mapper external`
+**Command**: `pydep-mapper external`
 **Purpose**: List all external dependencies across the codebase
 **Use Case**: Security auditing, license compliance, dependency management
 **Output**: List of external packages with usage statistics
 **Example**:
 ```bash
-dep-mapper external
+pydep-mapper external
 # Output:
 # External dependencies:
 # - numpy (used by 15 modules)
@@ -96,13 +96,13 @@ dep-mapper external
 ```
 
 #### 1.6 Codebase Metrics
-**Command**: `dep-mapper metrics`
+**Command**: `pydep-mapper metrics`
 **Purpose**: Display overall codebase health indicators
 **Use Case**: Architecture assessment, technical debt measurement
 **Output**: Key metrics about dependency structure
 **Example**:
 ```bash
-dep-mapper metrics
+pydep-mapper metrics
 # Output:
 # Dependency Metrics:
 # - Total modules: 156
@@ -115,13 +115,13 @@ dep-mapper metrics
 ```
 
 #### 1.7 Pressure Points Analysis
-**Command**: `dep-mapper pressure`
+**Command**: `pydep-mapper pressure`
 **Purpose**: Identify modules with the highest number of dependents (pressure points)
 **Use Case**: Prioritize testing and maintenance efforts on critical modules that many others depend on
 **Output**: Ranked list of modules by number of dependents, with hierarchical grouping
 **Example**:
 ```bash
-dep-mapper pressure
+pydep-mapper pressure
 # Output:
 # High-pressure modules (most dependents first):
 #   common.utils (15 dependents)
@@ -132,7 +132,7 @@ dep-mapper pressure
 # 
 # Total: 3 high-pressure modules found
 
-dep-mapper pressure --min-dependents 5
+pydep-mapper pressure --min-dependents 5
 # Output:
 # High-pressure modules with 5+ dependents:
 #   common.utils (15 dependents)
@@ -155,13 +155,13 @@ dep-mapper pressure --min-dependents 5
 ### 2. Agent Integration Commands (AI-Oriented)
 
 #### 2.1 Smart Context Selection
-**Command**: `dep-mapper agent-context MODULE_NAME`
+**Command**: `pydep-mapper agent-context MODULE_NAME`
 **Purpose**: Output a curated list of files an agent should read when working on a specific module
 **Use Case**: Help AI agents include relevant context without token waste
 **Output**: Prioritized file list with relevance scores
 **Example**:
 ```bash
-dep-mapper agent-context src.payments.processor --format json
+pydep-mapper agent-context src.payments.processor --format json
 # Output:
 # {
 #   "primary_file": "src/payments/processor.py",
@@ -178,13 +178,13 @@ dep-mapper agent-context src.payments.processor --format json
 ```
 
 #### 2.2 Context Suggestions
-**Command**: `dep-mapper suggest-context PATH`
+**Command**: `pydep-mapper suggest-context PATH`
 **Purpose**: Recommend minimal context for agents working in a directory
 **Use Case**: Optimize agent performance when working on features spanning multiple files
 **Output**: Smart file selection based on dependency relationships
 **Example**:
 ```bash
-dep-mapper suggest-context src/api/ --max-files 10
+pydep-mapper suggest-context src/api/ --max-files 10
 # Output:
 # Suggested context for 'src/api/':
 # Essential files (must include):
@@ -198,13 +198,13 @@ dep-mapper suggest-context src/api/ --max-files 10
 ```
 
 #### 2.3 Change Risk Assessment
-**Command**: `dep-mapper risk-assess MODULE_NAME`
+**Command**: `pydep-mapper risk-assess MODULE_NAME`
 **Purpose**: Pre-change risk analysis for agents
 **Use Case**: Help agents understand the complexity and risk of modifying a module
 **Output**: Risk metrics and safety recommendations
 **Example**:
 ```bash
-dep-mapper risk-assess src.models.user
+pydep-mapper risk-assess src.models.user
 # Output:
 # Risk Assessment for 'src.models.user':
 # - Risk Level: HIGH
@@ -218,20 +218,20 @@ dep-mapper risk-assess src.models.user
 ```
 
 #### 2.4 Dependency Validation
-**Command**: `dep-mapper validate-change FROM_MODULE TO_MODULE`
+**Command**: `pydep-mapper validate-change FROM_MODULE TO_MODULE`
 **Purpose**: Check if adding a dependency would create problems
 **Use Case**: Prevent agents from introducing circular dependencies
 **Output**: Validation result with warnings
 **Example**:
 ```bash
-dep-mapper validate-change src.api.orders src.models.order
+pydep-mapper validate-change src.api.orders src.models.order
 # Output:
 # Validation Result: SAFE
 # - No circular dependency would be created
 # - Dependency follows architectural patterns
 # - Similar pattern exists in src.api.users → src.models.user
 
-dep-mapper validate-change src.models.user src.api.auth
+pydep-mapper validate-change src.models.user src.api.auth
 # Output:
 # Validation Result: WARNING
 # - Would create circular dependency: models.user → api.auth → models.user
@@ -240,13 +240,13 @@ dep-mapper validate-change src.models.user src.api.auth
 ```
 
 #### 2.5 Parallel Work Identification
-**Command**: `dep-mapper suggest-parallel-work`
+**Command**: `pydep-mapper suggest-parallel-work`
 **Purpose**: Identify independent modules for parallel agent work
 **Use Case**: Enable multiple agents to work simultaneously without conflicts
 **Output**: Groups of modules that can be safely modified in parallel
 **Example**:
 ```bash
-dep-mapper suggest-parallel-work
+pydep-mapper suggest-parallel-work
 # Output:
 # Independent Work Groups:
 # Group 1: Payment Processing
@@ -301,7 +301,7 @@ dep-mapper suggest-parallel-work
 **Use Case**: Architecture documentation, presentations, visual analysis
 **Example**:
 ```bash
-dep-mapper impact src.payments.processor --format dot | dot -Tpng > dependency_graph.png
+pydep-mapper impact src.payments.processor --format dot | dot -Tpng > dependency_graph.png
 ```
 
 #### 3.3 CSV Format
@@ -393,13 +393,13 @@ This module is imported by 3 other modules and has medium refactoring risk.
 **Example Workflow**:
 ```bash
 # Check for new circular dependencies
-dep-mapper cycles --format json --exit-code-on-issues
+pydep-mapper cycles --format json --exit-code-on-issues
 
 # Validate that changes don't increase coupling beyond threshold
-dep-mapper metrics --format json | jq '.average_dependencies_per_module < 3'
+pydep-mapper metrics --format json | jq '.average_dependencies_per_module < 3'
 
 # Generate dependency report for code review
-dep-mapper impact $CHANGED_MODULE --format agent-md > dependency_impact.md
+pydep-mapper impact $CHANGED_MODULE --format agent-md > dependency_impact.md
 ```
 
 #### 5.2 IDE Integration
@@ -407,10 +407,10 @@ dep-mapper impact $CHANGED_MODULE --format agent-md > dependency_impact.md
 **Example**:
 ```bash
 # Generate context for current file
-dep-mapper agent-context $(current_file) --format cursor-context
+pydep-mapper agent-context $(current_file) --format cursor-context
 
 # Quick impact check before refactoring
-dep-mapper risk-assess $(current_module) --format brief
+pydep-mapper risk-assess $(current_module) --format brief
 ```
 
 #### 5.3 Agent Orchestration
@@ -418,10 +418,10 @@ dep-mapper risk-assess $(current_module) --format brief
 **Example**:
 ```bash
 # Assign work to different agents
-dep-mapper suggest-parallel-work --format json > work_assignments.json
+pydep-mapper suggest-parallel-work --format json > work_assignments.json
 
 # Validate agent's proposed changes
-dep-mapper validate-change $AGENT_MODULE $PROPOSED_DEPENDENCY
+pydep-mapper validate-change $AGENT_MODULE $PROPOSED_DEPENDENCY
 ```
 
 ### 6. Implementation Requirements
@@ -458,45 +458,45 @@ dep-mapper validate-change $AGENT_MODULE $PROPOSED_DEPENDENCY
 #### 7.1 Refactoring Workflow (Human)
 ```bash
 # 1. Understand what will be affected
-dep-mapper impact src.legacy.old_system
+pydep-mapper impact src.legacy.old_system
 
 # 2. Check for architectural issues
-dep-mapper cycles
+pydep-mapper cycles
 
 # 3. Plan the refactoring
-dep-mapper dependencies src.legacy.old_system
-dep-mapper orphans
+pydep-mapper dependencies src.legacy.old_system
+pydep-mapper orphans
 
 # 4. Validate after changes
-dep-mapper cycles
-dep-mapper metrics
+pydep-mapper cycles
+pydep-mapper metrics
 ```
 
 #### 7.2 Agent Code Review Workflow
 ```bash
 # 1. Agent gets context for changed file
-dep-mapper agent-context $CHANGED_FILE --format json
+pydep-mapper agent-context $CHANGED_FILE --format json
 
 # 2. Agent validates proposed changes
-dep-mapper validate-change $MODULE $NEW_DEPENDENCY
+pydep-mapper validate-change $MODULE $NEW_DEPENDENCY
 
 # 3. Agent assesses impact
-dep-mapper risk-assess $CHANGED_MODULE
+pydep-mapper risk-assess $CHANGED_MODULE
 
 # 4. Agent generates review comments with dependency context
-dep-mapper impact $CHANGED_MODULE --format agent-md
+pydep-mapper impact $CHANGED_MODULE --format agent-md
 ```
 
 #### 7.3 Security Audit Workflow
 ```bash
 # 1. List all external dependencies
-dep-mapper external --format csv > external_deps.csv
+pydep-mapper external --format csv > external_deps.csv
 
 # 2. Find modules using specific packages
-dep-mapper dependencies --filter "*requests*" --format json
+pydep-mapper dependencies --filter "*requests*" --format json
 
 # 3. Assess impact of vulnerable dependency
-dep-mapper impact requests --format json
+pydep-mapper impact requests --format json
 ```
 
 ### 8. Future Extensibility

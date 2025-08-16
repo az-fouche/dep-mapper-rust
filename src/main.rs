@@ -10,7 +10,7 @@ use dep_mapper::tools::pressure::{analyze_pressure, formatters as pressure_forma
 use std::path::Path;
 
 #[derive(Parser)]
-#[command(name = "dep-mapper")]
+#[command(name = "pydep-mapper")]
 #[command(about = "Python dependency mapper and analyzer")]
 struct Args {
     /// Root directory path to analyze for Python files

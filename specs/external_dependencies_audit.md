@@ -1,7 +1,7 @@
 # External Dependencies Audit Specification
 
 ## Overview
-Implementation specification for the `dep-mapper external` command (Feature 1.5) to audit external Python dependencies with three key analyses:
+Implementation specification for the `pydep-mapper external` command (Feature 1.5) to audit external Python dependencies with three key analyses:
 1. **Frequency analysis**: Most/least used external dependencies  
 2. **Undeclared detection**: Dependencies used in code but missing from pyproject.toml
 3. **Unused detection**: Dependencies declared in pyproject.toml but not used in code

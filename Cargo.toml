@@ -1,5 +1,5 @@
 [package]
-name = "dep-mapper"
+name = "pydep-mapper"
 version = "0.1.0"
 edition = "2024"
 
