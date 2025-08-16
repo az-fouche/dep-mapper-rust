@@ -214,8 +214,9 @@ pub mod formatters {
         }
 
         output.push_str(&format!(
-            "Total: {} modules affected\n",
-            result.total_affected_count
+            "Total: {} modules impacted by {}\n",
+            result.total_affected_count,
+            result.target_module
         ));
 
         output
