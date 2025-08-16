@@ -247,16 +247,16 @@ pub fn compute_module_name(file_path: &Path, project_root: &Path) -> Result<Stri
 
     // Add all directory components from the relative path
     for component in relative_path.components() {
-        if let std::path::Component::Normal(name) = component
-            && let Some(name_str) = name.to_str()
-        {
-            if name_str.ends_with(".py") {
-                let file_stem = name_str.strip_suffix(".py").unwrap();
-                if file_stem != "__init__" {
-                    parts.push(file_stem.to_string());
+        if let std::path::Component::Normal(name) = component {
+            if let Some(name_str) = name.to_str() {
+                if name_str.ends_with(".py") {
+                    let file_stem = name_str.strip_suffix(".py").unwrap();
+                    if file_stem != "__init__" {
+                        parts.push(file_stem.to_string());
+                    }
+                } else {
+                    parts.push(name_str.to_string());
                 }
-            } else {
-                parts.push(name_str.to_string());
             }
         }
     }

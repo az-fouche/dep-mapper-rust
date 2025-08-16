@@ -98,10 +98,11 @@ fn process_stmt(
                     
                     // Look for a numeric value in the debug string
                     for char in debug_str.chars() {
-                        if char.is_ascii_digit()
-                            && let Some(digit) = char.to_digit(10) {
+                        if char.is_ascii_digit() {
+                            if let Some(digit) = char.to_digit(10) {
                                 return digit;
                             }
+                        }
                     }
                     
                     // If no digit found, assume level 1 for relative imports

@@ -73,11 +73,12 @@ pub fn analyze_python_directory(dir_path: &Path) -> Result<Vec<std::path::PathBu
     for entry in fs::read_dir(dir_path)? {
         let entry = entry?;
         let path = entry.path();
-        if path.is_file()
-            && let Some(extension) = path.extension()
-            && extension == "py"
-        {
-            python_files.push(path);
+        if path.is_file() {
+            if let Some(extension) = path.extension() {
+                if extension == "py" {
+                python_files.push(path);
+                }
+            }
         }
     }
 
@@ -104,11 +105,12 @@ pub fn analyze_python_directory_recursive(dir_path: &Path) -> Result<Vec<PathBuf
         .filter_map(|e| e.ok())
         .filter(|e| {
             // Skip directories starting with dot or named 'tests'
-            if e.file_type().is_dir()
-                && let Some(name) = e.file_name().to_str()
-                && (name.starts_with('.') || name == "tests")
-            {
-                return false;
+            if e.file_type().is_dir() {
+                if let Some(name) = e.file_name().to_str() {
+                    if name.starts_with('.') || name == "tests" {
+                        return false;
+                    }
+                }
             }
             e.file_type().is_file()
         });
@@ -123,11 +125,11 @@ pub fn analyze_python_directory_recursive(dir_path: &Path) -> Result<Vec<PathBuf
 
     for entry in walker {
         let path = entry.path();
-        if let Some(extension) = path.extension()
-            && extension == "py"
-        {
-            python_files.push(path.to_path_buf());
-            pb.set_message(format!("Found {} Python files", python_files.len()));
+        if let Some(extension) = path.extension() {
+            if extension == "py" {
+                python_files.push(path.to_path_buf());
+                pb.set_message(format!("Found {} Python files", python_files.len()));
+            }
         }
         pb.tick();
     }

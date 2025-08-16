@@ -199,10 +199,11 @@ impl DependencyGraph {
                 if *edge.weight() == DependencyType::Contains {
                     continue;
                 }
-                if let Some(dependent_module) = self.graph.node_weight(edge.source())
-                    && seen_dependents.insert(dependent_module.clone()) {
+                if let Some(dependent_module) = self.graph.node_weight(edge.source()) {
+                    if seen_dependents.insert(dependent_module.clone()) {
                         result.push((dependent_module.clone(), edge.weight().clone()));
                     }
+                }
             }
         }
 
