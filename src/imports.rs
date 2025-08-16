@@ -18,16 +18,13 @@ pub struct ModuleIdentifier {
     pub canonical_path: String,
 }
 
-
 /// Extracts the root module name from a dotted module path.
 fn extract_root_module(module_name: &str) -> &str {
     module_name.split('.').next().unwrap_or(module_name)
 }
 
 /// Resolves a module name to a ModuleIdentifier.
-fn resolve_module_identifier(
-    module_name: &str,
-) -> ModuleIdentifier {
+fn resolve_module_identifier(module_name: &str) -> ModuleIdentifier {
     let origin = if crate::pyproject::is_internal_module(module_name) {
         ModuleOrigin::Internal
     } else {
@@ -35,10 +32,8 @@ fn resolve_module_identifier(
     };
 
     let canonical_path = match origin {
-        ModuleOrigin::Internal => {
-            crate::pyproject::normalize_module_name(module_name)
-                .unwrap_or_else(|_| module_name.to_string())
-        }
+        ModuleOrigin::Internal => crate::pyproject::normalize_module_name(module_name)
+            .unwrap_or_else(|_| module_name.to_string()),
         _ => extract_root_module(module_name).to_string(),
     };
 
@@ -49,10 +44,7 @@ fn resolve_module_identifier(
 }
 
 /// Processes a Python AST statement and extracts module dependencies.
-fn process_stmt(
-    stmt: &Stmt,
-    modules: &mut HashSet<ModuleIdentifier>,
-) {
+fn process_stmt(stmt: &Stmt, modules: &mut HashSet<ModuleIdentifier>) {
     match stmt {
         Stmt::Import(import_stmt) => {
             for alias in &import_stmt.names {
@@ -71,27 +63,20 @@ fn process_stmt(
 }
 
 /// Processes a collection of Python AST statements.
-fn process_body(
-    body: &[Stmt],
-    modules: &mut HashSet<ModuleIdentifier>,
-) {
+fn process_body(body: &[Stmt], modules: &mut HashSet<ModuleIdentifier>) {
     for stmt in body {
         process_stmt(stmt, modules);
     }
 }
 
 /// Extracts module dependencies from Python source code with context for resolution.
-pub fn extract_module_deps(
-    python_code: &str,
-) -> Result<Vec<ModuleIdentifier>> {
+pub fn extract_module_deps(python_code: &str) -> Result<Vec<ModuleIdentifier>> {
     let ast = parse(python_code, Mode::Module, "<string>")?;
     let mut modules = HashSet::new();
 
     match ast {
         Mod::Module(module) => process_body(&module.body, &mut modules),
-        Mod::Interactive(interactive) => {
-            process_body(&interactive.body, &mut modules)
-        }
+        Mod::Interactive(interactive) => process_body(&interactive.body, &mut modules),
         Mod::Expression(_) => {} // No statements to visit in expression mode
         Mod::FunctionType(_) => {} // No statements to visit in function type mode
     }

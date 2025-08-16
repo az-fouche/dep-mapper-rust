@@ -12,8 +12,7 @@ fn test_full_workflow_with_test_py() {
 
     // Extract dependencies
     let dependencies =
-        extract_module_deps(&python_code)
-            .expect("Should be able to extract dependencies");
+        extract_module_deps(&python_code).expect("Should be able to extract dependencies");
 
     // Verify we found the expected dependencies
     assert_eq!(dependencies.len(), 5);
@@ -38,7 +37,9 @@ fn test_full_workflow_with_test_py() {
     graph.add_module(test_module.clone());
     for dep in &dependencies {
         graph.add_module(dep.clone()); // Ignore duplicates
-        graph.add_dependency(&test_module, dep, DependencyType::Imports).unwrap();
+        graph
+            .add_dependency(&test_module, dep, DependencyType::Imports)
+            .unwrap();
     }
 
     // Verify graph state
@@ -47,9 +48,9 @@ fn test_full_workflow_with_test_py() {
 
     // Verify the test module exists in the graph
     let all_modules: Vec<_> = graph.all_modules().collect();
-    let test_module_exists = all_modules.iter().any(|m| {
-        m.canonical_path == "test" && m.origin == ModuleOrigin::Internal
-    });
+    let test_module_exists = all_modules
+        .iter()
+        .any(|m| m.canonical_path == "test" && m.origin == ModuleOrigin::Internal);
     assert!(test_module_exists);
 }
 
@@ -63,8 +64,7 @@ import requests
 from collections import defaultdict
 "#;
 
-    let modules = extract_module_deps(python_code)
-        .expect("Should parse correctly");
+    let modules = extract_module_deps(python_code).expect("Should parse correctly");
 
     // Check that modules are detected correctly
     for module in modules {

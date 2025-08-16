@@ -21,23 +21,24 @@ pub struct PyProjectParser {
 /// If module A's path is contained within module B's path, module A is ignored.
 fn filter_contained_packages(mut packages: Vec<PackageInfo>) -> Vec<PackageInfo> {
     packages.sort_by(|a, b| a.directory.len().cmp(&b.directory.len()));
-    
+
     let mut filtered = Vec::new();
-    
+
     for package in packages {
         let is_contained = filtered.iter().any(|existing: &PackageInfo| {
             let existing_path = existing.directory.trim_end_matches('/');
             let package_path = package.directory.trim_end_matches('/');
-            
-            package_path.starts_with(&format!("{}/", existing_path)) ||
-            (package_path.len() > existing_path.len() && package_path.starts_with(existing_path))
+
+            package_path.starts_with(&format!("{}/", existing_path))
+                || (package_path.len() > existing_path.len()
+                    && package_path.starts_with(existing_path))
         });
-        
+
         if !is_contained {
             filtered.push(package);
         }
     }
-    
+
     filtered
 }
 
@@ -74,7 +75,7 @@ impl PyProjectParser {
                         .and_then(|f| f.as_str())
                         .unwrap_or(include)
                         .to_string();
-                    
+
                     packages.push(PackageInfo {
                         name: include.to_string(),
                         directory,
@@ -87,9 +88,8 @@ impl PyProjectParser {
     }
 
     pub fn get_package_info(&self) -> &Vec<PackageInfo> {
-        self.package_info.get_or_init(|| {
-            self.load_package_info().unwrap_or_default()
-        })
+        self.package_info
+            .get_or_init(|| self.load_package_info().unwrap_or_default())
     }
 
     pub fn is_internal_module(&self, module_name: &str) -> bool {
@@ -130,7 +130,9 @@ pub fn init(project_root: &Path) {
 }
 
 pub fn is_internal_module(module_name: &str) -> bool {
-    PARSER.get().map_or(false, |parser| parser.is_internal_module(module_name))
+    PARSER
+        .get()
+        .map_or(false, |parser| parser.is_internal_module(module_name))
 }
 
 pub fn normalize_module_name(module_name: &str) -> Result<String> {
@@ -142,10 +144,7 @@ pub fn normalize_module_name(module_name: &str) -> Result<String> {
 
 /// Computes the Python module name from file path relative to project root.
 /// Uses pyproject.toml package definitions to normalize module names.
-pub fn compute_module_name(
-    file_path: &Path,
-    project_root: &Path,
-) -> Result<String> {
+pub fn compute_module_name(file_path: &Path, project_root: &Path) -> Result<String> {
     let relative_path = file_path.strip_prefix(project_root).map_err(|_| {
         anyhow::anyhow!(
             "File path '{}' is not within project root '{}'",
@@ -173,7 +172,9 @@ pub fn compute_module_name(
     }
 
     if parts.is_empty() {
-        return Err(anyhow::anyhow!("Could not determine module name from file path"));
+        return Err(anyhow::anyhow!(
+            "Could not determine module name from file path"
+        ));
     }
 
     let full_name = parts.join(".");
@@ -201,10 +202,10 @@ packages = [
         let parser = PyProjectParser::new(temp_dir.path());
         let packages = parser.get_package_info();
         assert_eq!(packages.len(), 2);
-        
+
         let common = packages.iter().find(|p| p.name == "common").unwrap();
         assert_eq!(common.directory, "common/");
-        
+
         let mymodule = packages.iter().find(|p| p.name == "mymodule").unwrap();
         assert_eq!(mymodule.directory, "MyModule/");
     }
@@ -223,7 +224,7 @@ packages = [
 
         // Create a direct parser instance for this test to avoid global state
         let parser = PyProjectParser::new(temp_dir.path());
-        
+
         assert!(parser.is_internal_module("common"));
         assert!(parser.is_internal_module("common.utils"));
         assert!(!parser.is_internal_module("numpy"));
@@ -247,7 +248,7 @@ packages = [
         ];
 
         let filtered = filter_contained_packages(packages);
-        
+
         assert_eq!(filtered.len(), 2);
         assert!(filtered.iter().any(|p| p.name == "ehr_data_formatter"));
         assert!(filtered.iter().any(|p| p.name == "other"));
@@ -258,7 +259,7 @@ packages = [
     fn test_compute_module_name() {
         let temp_dir = TempDir::new().unwrap();
         init(temp_dir.path());
-        
+
         let project_root = temp_dir.path();
 
         // Test simple file
