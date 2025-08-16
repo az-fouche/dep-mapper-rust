@@ -114,6 +114,44 @@ dep-mapper metrics
 # - Deepest dependency chain: 8 levels
 ```
 
+#### 1.7 Pressure Points Analysis
+**Command**: `dep-mapper pressure`
+**Purpose**: Identify modules with the highest number of dependents (pressure points)
+**Use Case**: Prioritize testing and maintenance efforts on critical modules that many others depend on
+**Output**: Ranked list of modules by number of dependents, with hierarchical grouping
+**Example**:
+```bash
+dep-mapper pressure
+# Output:
+# High-pressure modules (most dependents first):
+#   common.utils (15 dependents)
+#     .validation (8 dependents) 
+#     .helpers (5 dependents)
+#   models.user (12 dependents)
+#   api.base (9 dependents)
+# 
+# Total: 3 high-pressure modules found
+
+dep-mapper pressure --min-dependents 5
+# Output:
+# High-pressure modules with 5+ dependents:
+#   common.utils (15 dependents)
+#     .validation (8 dependents)
+#     .helpers (5 dependents) 
+#   models.user (12 dependents)
+#   api.base (9 dependents)
+# 
+# Total: 5 high-pressure modules found
+```
+
+**Implementation Notes**:
+- Reuses `get_transitive_dependents_with_types()` logic from impact analysis
+- Applies `filter_hierarchical()` for clean hierarchical output grouping
+- Filters out test modules to focus on production dependencies
+- Sorts by dependent count (descending) to show highest pressure first
+- Optional `--min-dependents N` flag to filter results by threshold
+- Uses existing formatting infrastructure for consistent display
+
 ### 2. Agent Integration Commands (AI-Oriented)
 
 #### 2.1 Smart Context Selection
