@@ -2,6 +2,12 @@ pub fn print_agent_documentation() {
     print!(
         r#"PYTHON DEPENDENCY ANALYSIS COMMANDS
 
+Health Assessment:
+  diagnose             → Comprehensive codebase health report with scoring
+                         Example: pydep-mapper diagnose
+                         Output: Health score (0-100), metrics summary, issues found
+                         Use: Get overall architecture quality assessment
+
 Exploration Commands:
   pressure             → Find critical modules by dependent count
                          Example: pydep-mapper pressure

@@ -3,6 +3,7 @@ use pydep_mapper::crawler::build_directory_dependency_graph;
 use pydep_mapper::tools::agent::print_agent_documentation;
 use pydep_mapper::tools::cycles::{detect_cycles, formatters as cycle_formatters};
 use pydep_mapper::tools::dependencies::{analyze_dependencies, formatters as dep_formatters};
+use pydep_mapper::tools::diagnose::{analyze_diagnose, formatters as diagnose_formatters};
 use pydep_mapper::tools::external::{
     analyze_external_dependencies, formatters as external_formatters,
 };
@@ -42,6 +43,9 @@ enum Commands {
 
     /// Detect and report circular dependencies in the codebase
     Cycles,
+
+    /// Comprehensive health report of the codebase from a dependency perspective
+    Diagnose,
 
     /// Identify modules with the highest number of dependents (pressure points)
     Pressure,
@@ -91,6 +95,12 @@ fn main() {
             Ok(()) => {}
             Err(e) => {
                 eprintln!("Error running cycles analysis: {}", e);
+            }
+        },
+        Commands::Diagnose => match run_diagnose_analysis(dir_path) {
+            Ok(()) => {}
+            Err(e) => {
+                eprintln!("Error running diagnose analysis: {}", e);
             }
         },
         Commands::Pressure => match run_pressure_analysis(dir_path) {
@@ -178,6 +188,19 @@ fn run_instability_analysis(dir_path: &Path) -> anyhow::Result<()> {
 
     // Output results as text
     print!("{}", instability_formatters::format_text(&result));
+
+    Ok(())
+}
+
+fn run_diagnose_analysis(dir_path: &Path) -> anyhow::Result<()> {
+    // Build the dependency graph
+    let graph = build_directory_dependency_graph(dir_path)?;
+
+    // Run diagnose analysis
+    let result = analyze_diagnose(&graph)?;
+
+    // Output results as text
+    print!("{}", diagnose_formatters::format_text(&result));
 
     Ok(())
 }
