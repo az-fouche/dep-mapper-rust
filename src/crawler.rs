@@ -1,4 +1,4 @@
-use crate::graph::{DependencyGraph, DependencyType};
+use crate::graph::{DependencyGraph, DependencyType, utils::add_containment_relationships};
 use crate::imports::{ModuleIdentifier, ModuleOrigin, extract_module_deps};
 use anyhow::Result;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -7,9 +7,7 @@ use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 /// Builds a dependency graph from all Python files in a directory (recursive).
-pub fn build_directory_dependency_graph(
-    dir_path: &Path,
-) -> Result<DependencyGraph> {
+pub fn build_directory_dependency_graph(dir_path: &Path) -> Result<DependencyGraph> {
     let python_files = analyze_python_directory_recursive(dir_path)?;
     let mut graph = DependencyGraph::new();
 
@@ -20,15 +18,20 @@ pub fn build_directory_dependency_graph(
     let pb = ProgressBar::new(python_files.len() as u64);
     pb.set_style(
         ProgressStyle::default_bar()
-            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos:>7}/{len:7} {msg}")
-            .unwrap()
-            .progress_chars("##-")
+            .template(
+                "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos:>7}/{len:7} {msg}",
+            )
+            .map_err(|e| anyhow::anyhow!("Failed to set progress bar style: {}", e))?
+            .progress_chars("##-"),
     );
     pb.set_message("Analyzing Python files");
 
     for file_path in &python_files {
-        pb.set_message(format!("Processing {}", file_path.file_name().unwrap_or_default().to_string_lossy()));
-        
+        pb.set_message(format!(
+            "Processing {}",
+            file_path.file_name().unwrap_or_default().to_string_lossy()
+        ));
+
         match analyze_python_file_with_package(file_path, dir_path) {
             Ok((module_id, dependencies)) => {
                 graph.add_module(module_id.clone()); // Ignore duplicates - module might be added as dependency first
@@ -50,19 +53,20 @@ pub fn build_directory_dependency_graph(
     }
 
     pb.finish_with_message("Analysis complete");
-    
+
     // Add containment relationships based on module hierarchy
-    graph.add_containment_relationships()?;
-    
+    add_containment_relationships(&mut graph)?;
+
     Ok(graph)
 }
 
 /// Discovers all Python files in a directory (non-recursive).
-pub fn analyze_python_directory(
-    dir_path: &Path,
-) -> Result<Vec<std::path::PathBuf>> {
+pub fn analyze_python_directory(dir_path: &Path) -> Result<Vec<std::path::PathBuf>> {
     if !dir_path.is_dir() {
-        return Err(anyhow::anyhow!("Path '{}' is not a directory", dir_path.display()));
+        return Err(anyhow::anyhow!(
+            "Path '{}' is not a directory",
+            dir_path.display()
+        ));
     }
 
     let mut python_files = Vec::new();
@@ -84,15 +88,16 @@ pub fn analyze_python_directory(
 }
 
 /// Discovers all Python files in a directory and its subdirectories (recursive).
-pub fn analyze_python_directory_recursive(
-    dir_path: &Path,
-) -> Result<Vec<PathBuf>> {
+pub fn analyze_python_directory_recursive(dir_path: &Path) -> Result<Vec<PathBuf>> {
     if !dir_path.is_dir() {
-        return Err(anyhow::anyhow!("Path '{}' is not a directory", dir_path.display()));
+        return Err(anyhow::anyhow!(
+            "Path '{}' is not a directory",
+            dir_path.display()
+        ));
     }
 
     let mut python_files = Vec::new();
-    
+
     let walker = WalkDir::new(dir_path)
         .follow_links(false)
         .into_iter()
@@ -112,7 +117,7 @@ pub fn analyze_python_directory_recursive(
     pb.set_style(
         ProgressStyle::default_spinner()
             .template("{spinner:.green} {msg}")
-            .unwrap()
+            .map_err(|e| anyhow::anyhow!("Failed to set progress bar style: {}", e))?,
     );
     pb.set_message("Discovering Python files...");
 
@@ -136,12 +141,9 @@ pub fn analyze_python_directory_recursive(
 }
 
 /// Analyzes a single Python file and returns the module identifier and its dependencies.
-pub fn analyze_python_file(
-    file_path: &Path,
-) -> Result<(ModuleIdentifier, Vec<ModuleIdentifier>)> {
+pub fn analyze_python_file(file_path: &Path) -> Result<(ModuleIdentifier, Vec<ModuleIdentifier>)> {
     let python_code = fs::read_to_string(file_path)?;
-    let dependencies =
-        extract_module_deps(&python_code)?;
+    let dependencies = extract_module_deps(&python_code)?;
 
     // Create module identifier for this file
     let module_name = file_path
@@ -163,8 +165,7 @@ pub fn analyze_python_file_with_package(
     project_root: &Path,
 ) -> Result<(ModuleIdentifier, Vec<ModuleIdentifier>)> {
     let python_code = fs::read_to_string(file_path)?;
-    let dependencies =
-        extract_module_deps(&python_code)?;
+    let dependencies = extract_module_deps(&python_code)?;
 
     // Create module identifier with proper package path
     let module_name = crate::pyproject::compute_module_name(file_path, project_root)?;
@@ -174,8 +175,6 @@ pub fn analyze_python_file_with_package(
     };
     Ok((module_id, dependencies))
 }
-
-
 
 #[cfg(test)]
 mod tests {
@@ -434,7 +433,6 @@ import numpy as np
         assert!(filenames.contains(&"package/__init__.py".to_string()));
         assert!(filenames.contains(&"package/subpackage/deep.py".to_string()));
     }
-
 
     #[test]
     fn test_analyze_python_file_with_package() {

@@ -3,8 +3,8 @@ use anyhow::Result;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
 use petgraph::{Directed, Graph};
-use std::fmt;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::fmt;
 
 /// Represents the type of dependency relationship between modules.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -16,7 +16,7 @@ pub enum DependencyType {
     /// X contains Y (e.g., module contains function/class)
     Contains,
     /// X is the module
-    Is
+    Is,
 }
 
 /// A directed graph representing dependencies between Python modules.
@@ -82,36 +82,28 @@ impl DependencyGraph {
         Ok(())
     }
 
-
     /// Gets all modules that the specified module depends on.
     ///
     /// Returns a vector of module identifiers that this module imports.
     ///
     /// # Errors
     /// Returns an error if the module is not found in the graph.
-    pub fn get_dependencies(
-        &self,
-        module_id: &ModuleIdentifier,
-    ) -> Result<Vec<String>> {
-        let node_idx = self
-            .module_index
-            .get(module_id)
-            .ok_or_else(|| anyhow::anyhow!("Module '{}' not found in graph", module_id.canonical_path))?;
+    pub fn get_dependencies(&self, module_id: &ModuleIdentifier) -> Result<Vec<String>> {
+        let node_idx = self.get_node_index(module_id)?;
 
         Ok(self
             .graph
-            .edges(*node_idx)
+            .edges(node_idx)
             .filter_map(|edge| self.graph.node_weight(edge.target()))
             .cloned()
             .collect())
     }
 
     /// Returns NodeIndex of a module_id or an error if not found.
-    fn node_index_of(&self, module_id: &ModuleIdentifier) -> Result<NodeIndex> {
-        self.module_index
-            .get(module_id)
-            .copied()
-            .ok_or_else(|| anyhow::anyhow!("Module '{}' not found in graph", module_id.canonical_path))
+    fn get_node_index(&self, module_id: &ModuleIdentifier) -> Result<NodeIndex> {
+        self.module_index.get(module_id).copied().ok_or_else(|| {
+            anyhow::anyhow!("Module '{}' not found in graph", module_id.canonical_path)
+        })
     }
 
     /// Collect all descendant nodes reachable by following `Contains` edges.
@@ -122,49 +114,30 @@ impl DependencyGraph {
         module_id: &ModuleIdentifier,
         include_self: bool,
     ) -> Result<Vec<NodeIndex>> {
-        let start = self.node_index_of(module_id)?;
-        let mut visited: HashSet<NodeIndex> = HashSet::new();
-        let mut order: Vec<NodeIndex> = Vec::new();
-        let mut q = VecDeque::new();
+        let start = self.get_node_index(module_id)?;
+        let mut visited = HashSet::new();
+        let mut result = Vec::new();
+        let mut queue = VecDeque::new();
 
         if include_self {
             visited.insert(start);
-            order.push(start);
-            q.push_back(start);
-        } else {
-            q.push_back(start);
+            result.push(start);
         }
+        queue.push_back(start);
 
-        while let Some(n) = q.pop_front() {
-            // Follow only `Contains` edges: parent -> child
-            for e in self.graph.edges(n) {
-                if matches!(e.weight(), DependencyType::Contains) {
-                    let child = e.target();
+        while let Some(current) = queue.pop_front() {
+            for edge in self.graph.edges(current) {
+                if matches!(edge.weight(), DependencyType::Contains) {
+                    let child = edge.target();
                     if visited.insert(child) {
-                        order.push(child);
-                        q.push_back(child);
+                        result.push(child);
+                        queue.push_back(child);
                     }
                 }
             }
-            // When include_self == false, we don't want to revisit start from incoming edges
         }
 
-        // If include_self == false, we seeded queue with start but didn't mark it visited/push into order.
-        if !include_self {
-            // seed children of start:
-            for e in self.graph.edges(start) {
-                if matches!(e.weight(), DependencyType::Contains) {
-                    let child = e.target();
-                    if visited.insert(child) {
-                        order.push(child);
-                        q.push_back(child);
-                    }
-                }
-            }
-            // BFS from the already-enqueued children (loop will continue)
-        }
-
-        Ok(order)
+        Ok(result)
     }
 
     /// Gets all modules that depend on the specified module.
@@ -173,26 +146,20 @@ impl DependencyGraph {
     ///
     /// # Errors
     /// Returns an error if the module is not found in the graph.
-    pub fn get_dependents(
-        &self,
-        module_id: &ModuleIdentifier,
-    ) -> Result<Vec<String>> {
-        let node_idx = self
-            .module_index
-            .get(module_id)
-            .ok_or_else(|| anyhow::anyhow!("Module '{}' not found in graph", module_id.canonical_path))?;
+    pub fn get_dependents(&self, module_id: &ModuleIdentifier) -> Result<Vec<String>> {
+        let node_idx = self.get_node_index(module_id)?;
 
         Ok(self
             .graph
-            .edges_directed(*node_idx, petgraph::Incoming)
+            .edges_directed(node_idx, petgraph::Incoming)
             .filter_map(|edge| self.graph.node_weight(edge.source()))
             .cloned()
             .collect())
     }
 
-    /// Gets all modules that depend on the specified module with their dependency types.
+    /// Gets all modules that the specified module depends on with their dependency types.
     ///
-    /// Returns a vector of tuples containing (source_module, dependency_type).
+    /// Returns a vector of tuples containing (target_module, dependency_type).
     ///
     /// # Errors
     /// Returns an error if the module is not found in the graph.
@@ -200,16 +167,14 @@ impl DependencyGraph {
         &self,
         module_id: &ModuleIdentifier,
     ) -> Result<Vec<(String, DependencyType)>> {
-        let node_idx = self
-            .module_index
-            .get(module_id)
-            .ok_or_else(|| anyhow::anyhow!("Module '{}' not found in graph", module_id.canonical_path))?;
+        let node_idx = self.get_node_index(module_id)?;
 
         Ok(self
             .graph
-            .edges_directed(*node_idx, petgraph::Incoming)
+            .edges(node_idx)
             .filter_map(|edge| {
-                self.graph.node_weight(edge.source())
+                self.graph
+                    .node_weight(edge.target())
                     .map(|module| (module.clone(), edge.weight().clone()))
             })
             .collect())
@@ -223,25 +188,26 @@ impl DependencyGraph {
         &self,
         module_id: &ModuleIdentifier,
     ) -> Result<Vec<(String, DependencyType)>> {
-        let nodes = self.descendants_via_contains(module_id, /*include_self=*/ true)?;
-        let mut seen_dependent: HashSet<String> = HashSet::new();
-        let mut out: Vec<(String, DependencyType)> = Vec::new();
-        out.push((module_id.canonical_path.clone(), DependencyType::Is));
+        let descendant_nodes = self.descendants_via_contains(module_id, true)?;
+        let mut seen_dependents = HashSet::new();
+        let mut result = Vec::new();
 
-        for n in nodes {
-            for e in self.graph.edges_directed(n, petgraph::Incoming) {
-                if *e.weight() == DependencyType::Contains {
+        result.push((module_id.canonical_path.clone(), DependencyType::Is));
+
+        for node in descendant_nodes {
+            for edge in self.graph.edges_directed(node, petgraph::Incoming) {
+                if *edge.weight() == DependencyType::Contains {
                     continue;
                 }
-                if let Some(dep_name) = self.graph.node_weight(e.source()) {
-                    // Minimal de-dupe at the "who is affected" level
-                    if seen_dependent.insert(dep_name.clone()) {
-                        out.push((dep_name.clone(), e.weight().clone()));
+                if let Some(dependent_module) = self.graph.node_weight(edge.source()) {
+                    if seen_dependents.insert(dependent_module.clone()) {
+                        result.push((dependent_module.clone(), edge.weight().clone()));
                     }
                 }
             }
         }
-        Ok(out)
+
+        Ok(result)
     }
 
     /// Returns the total number of modules in the graph.
@@ -258,82 +224,95 @@ impl DependencyGraph {
     pub fn all_modules(&self) -> impl Iterator<Item = &ModuleIdentifier> {
         self.module_index.keys()
     }
+}
+
+/// Utility functions for working with dependency graphs
+pub mod utils {
+    use super::*;
 
     /// Adds Contains/IncludedIn relationships based on module path hierarchy.
-    /// 
+    ///
     /// For each module with dots in its path, creates bidirectional relationships
     /// with its direct parent module.
-    pub fn add_containment_relationships(&mut self) -> Result<()> {
-        let modules: Vec<ModuleIdentifier> = self.all_modules().cloned().collect();
-        
+    pub fn add_containment_relationships(graph: &mut DependencyGraph) -> Result<()> {
+        let modules: Vec<ModuleIdentifier> = graph.all_modules().cloned().collect();
+
         for module in &modules {
             if let Some(parent_path) = get_direct_parent_module(&module.canonical_path) {
-                // Find or create parent module identifier
                 let parent_module = ModuleIdentifier {
                     origin: module.origin.clone(),
                     canonical_path: parent_path,
                 };
-                
-                // Add parent module if it doesn't exist
-                self.add_module(parent_module.clone());
-                
-                // Add bidirectional relationships
-                self.add_dependency(&parent_module, module, DependencyType::Contains)?;
-                self.add_dependency(module, &parent_module, DependencyType::IncludedIn)?;
+
+                graph.add_module(parent_module.clone());
+                graph.add_dependency(&parent_module, &module, DependencyType::Contains)?;
+                graph.add_dependency(&module, &parent_module, DependencyType::IncludedIn)?;
             }
         }
-        
+
         Ok(())
+    }
+
+    /// Extracts the direct parent module from a module path.
+    ///
+    /// Returns the immediate parent module path, or None if the module is top-level.
+    pub fn get_direct_parent_module(module_path: &str) -> Option<String> {
+        if let Some(last_dot) = module_path.rfind('.') {
+            Some(module_path[..last_dot].to_string())
+        } else {
+            None
+        }
     }
 }
 
 impl fmt::Display for DependencyGraph {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "--- Dependency Graph ---")?;
-        writeln!(
-            f,
-            "Modules: {}, Dependencies: {}\n",
-            self.module_count(),
-            self.dependency_count()
-        )?;
+        format_dependency_graph(self, f)
+    }
+}
 
-        let mut modules: Vec<_> = self.all_modules().collect();
-        modules.sort_by(|a, b| a.canonical_path.cmp(&b.canonical_path));
+/// Formats a dependency graph for display
+fn format_dependency_graph(graph: &DependencyGraph, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    writeln!(f, "--- Dependency Graph ---")?;
+    writeln!(
+        f,
+        "Modules: {}, Dependencies: {}\n",
+        graph.module_count(),
+        graph.dependency_count()
+    )?;
 
-        for module in modules {
-            if module.origin != ModuleOrigin::Internal {
-                continue;
-            }
-            let dependencies_with_types = self.get_dependencies_with_types(module).unwrap_or_default();
-            
-            if dependencies_with_types.is_empty() {
-                writeln!(f, "{} -> (no dependencies)", module.canonical_path)?;
-            } else {
-                writeln!(f, "{} -> ({} deps)", module.canonical_path, dependencies_with_types.len())?;
-                for (dep_module, dep_type) in dependencies_with_types {
-                    writeln!(f, "  -> {} ({:?})", dep_module, dep_type)?;
-                }
+    let mut internal_modules: Vec<_> = graph
+        .all_modules()
+        .filter(|m| m.origin == ModuleOrigin::Internal)
+        .collect();
+    internal_modules.sort_by(|a, b| a.canonical_path.cmp(&b.canonical_path));
+
+    for module in internal_modules {
+        let dependencies = graph
+            .get_dependencies_with_types(module)
+            .unwrap_or_default();
+
+        if dependencies.is_empty() {
+            writeln!(f, "{} -> (no dependencies)", module.canonical_path)?;
+        } else {
+            writeln!(
+                f,
+                "{} -> ({} deps)",
+                module.canonical_path,
+                dependencies.len()
+            )?;
+            for (dep_module, dep_type) in dependencies {
+                writeln!(f, "  -> {} ({:?})", dep_module, dep_type)?;
             }
         }
-
-        Ok(())
     }
+
+    Ok(())
 }
 
 impl Default for DependencyGraph {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-/// Extracts the direct parent module from a module path.
-/// 
-/// Returns the immediate parent module path, or None if the module is top-level.
-fn get_direct_parent_module(module_path: &str) -> Option<String> {
-    if let Some(last_dot) = module_path.rfind('.') {
-        Some(module_path[..last_dot].to_string())
-    } else {
-        None // Top-level module has no parent
     }
 }
 
@@ -366,7 +345,11 @@ mod tests {
         assert_eq!(graph.module_count(), 1);
         // Module should exist in the graph
         let all_modules: Vec<_> = graph.all_modules().collect();
-        assert!(all_modules.iter().any(|m| m.canonical_path == "test.module"));
+        assert!(
+            all_modules
+                .iter()
+                .any(|m| m.canonical_path == "test.module")
+        );
     }
 
     #[test]
@@ -409,8 +392,12 @@ mod tests {
         graph.add_module(utils_id.clone());
         graph.add_module(config_id.clone());
 
-        graph.add_dependency(&main_id, &utils_id, DependencyType::Imports).unwrap();
-        graph.add_dependency(&main_id, &config_id, DependencyType::Imports).unwrap();
+        graph
+            .add_dependency(&main_id, &utils_id, DependencyType::Imports)
+            .unwrap();
+        graph
+            .add_dependency(&main_id, &config_id, DependencyType::Imports)
+            .unwrap();
 
         let deps = graph.get_dependencies(&main_id).unwrap();
         assert_eq!(deps.len(), 2);
@@ -431,8 +418,12 @@ mod tests {
         graph.add_module(main_id.clone());
         graph.add_module(tests_id.clone());
 
-        graph.add_dependency(&main_id, &utils_id, DependencyType::Imports).unwrap();
-        graph.add_dependency(&tests_id, &utils_id, DependencyType::Imports).unwrap();
+        graph
+            .add_dependency(&main_id, &utils_id, DependencyType::Imports)
+            .unwrap();
+        graph
+            .add_dependency(&tests_id, &utils_id, DependencyType::Imports)
+            .unwrap();
 
         let dependents = graph.get_dependents(&utils_id).unwrap();
         assert_eq!(dependents.len(), 2);
@@ -452,13 +443,22 @@ mod tests {
 
         let result = graph.add_dependency(&existing_id, &missing_id, DependencyType::Imports);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Module 'missing' not found"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Module 'missing' not found")
+        );
 
         let result2 = graph.add_dependency(&missing_id, &existing_id, DependencyType::Imports);
         assert!(result2.is_err());
-        assert!(result2.unwrap_err().to_string().contains("Module 'missing' not found"));
+        assert!(
+            result2
+                .unwrap_err()
+                .to_string()
+                .contains("Module 'missing' not found")
+        );
     }
-
 
     #[test]
     fn test_dependencies_of_nonexistent_module() {
@@ -523,8 +523,15 @@ mod tests {
 
     #[test]
     fn test_get_direct_parent_module() {
-        assert_eq!(get_direct_parent_module("numpy.testing.utils"), Some("numpy.testing".to_string()));
-        assert_eq!(get_direct_parent_module("numpy.testing"), Some("numpy".to_string()));
+        use super::utils::get_direct_parent_module;
+        assert_eq!(
+            get_direct_parent_module("numpy.testing.utils"),
+            Some("numpy.testing".to_string())
+        );
+        assert_eq!(
+            get_direct_parent_module("numpy.testing"),
+            Some("numpy".to_string())
+        );
         assert_eq!(get_direct_parent_module("numpy"), None);
         assert_eq!(get_direct_parent_module(""), None);
         assert_eq!(get_direct_parent_module("single"), None);
@@ -532,12 +539,14 @@ mod tests {
 
     #[test]
     fn test_add_containment_relationships() {
+        use super::utils::add_containment_relationships;
         let mut graph = DependencyGraph::new();
 
         // Add modules with hierarchical names
         let numpy_id = create_test_module_id("numpy", ModuleOrigin::External);
         let numpy_testing_id = create_test_module_id("numpy.testing", ModuleOrigin::External);
-        let numpy_testing_utils_id = create_test_module_id("numpy.testing.utils", ModuleOrigin::External);
+        let numpy_testing_utils_id =
+            create_test_module_id("numpy.testing.utils", ModuleOrigin::External);
         let scipy_id = create_test_module_id("scipy", ModuleOrigin::External);
 
         graph.add_module(numpy_id.clone());
@@ -550,25 +559,35 @@ mod tests {
         assert_eq!(graph.dependency_count(), 0);
 
         // Add containment relationships
-        graph.add_containment_relationships().unwrap();
+        add_containment_relationships(&mut graph).unwrap();
 
         // Should have same modules but new dependencies
         assert_eq!(graph.module_count(), 4);
         assert_eq!(graph.dependency_count(), 4); // 2 bidirectional relationships
 
         // Test specific relationships
-        let numpy_testing_deps = graph.get_dependencies_with_types(&numpy_testing_id).unwrap();
+        let numpy_testing_deps = graph
+            .get_dependencies_with_types(&numpy_testing_id)
+            .unwrap();
         assert_eq!(numpy_testing_deps.len(), 2); // Both IncludedIn numpy and Contains numpy.testing.utils
         assert!(numpy_testing_deps.contains(&("numpy".to_string(), DependencyType::IncludedIn)));
-        assert!(numpy_testing_deps.contains(&("numpy.testing.utils".to_string(), DependencyType::Contains)));
+        assert!(
+            numpy_testing_deps
+                .contains(&("numpy.testing.utils".to_string(), DependencyType::Contains))
+        );
 
         let numpy_deps = graph.get_dependencies_with_types(&numpy_id).unwrap();
         assert_eq!(numpy_deps.len(), 1);
         assert!(numpy_deps.contains(&("numpy.testing".to_string(), DependencyType::Contains)));
 
-        let numpy_testing_utils_deps = graph.get_dependencies_with_types(&numpy_testing_utils_id).unwrap();
+        let numpy_testing_utils_deps = graph
+            .get_dependencies_with_types(&numpy_testing_utils_id)
+            .unwrap();
         assert_eq!(numpy_testing_utils_deps.len(), 1);
-        assert!(numpy_testing_utils_deps.contains(&("numpy.testing".to_string(), DependencyType::IncludedIn)));
+        assert!(
+            numpy_testing_utils_deps
+                .contains(&("numpy.testing".to_string(), DependencyType::IncludedIn))
+        );
 
         // scipy should have no dependencies (top-level module)
         let scipy_deps = graph.get_dependencies_with_types(&scipy_id).unwrap();
@@ -588,8 +607,12 @@ mod tests {
         graph.add_module(module3.clone());
 
         // Add different types of dependencies
-        graph.add_dependency(&module1, &module2, DependencyType::Imports).unwrap();
-        graph.add_dependency(&module1, &module3, DependencyType::Contains).unwrap();
+        graph
+            .add_dependency(&module1, &module2, DependencyType::Imports)
+            .unwrap();
+        graph
+            .add_dependency(&module1, &module3, DependencyType::Contains)
+            .unwrap();
 
         let deps = graph.get_dependencies_with_types(&module1).unwrap();
         assert_eq!(deps.len(), 2);
