@@ -60,8 +60,8 @@ fn run_impact_analysis(dir_path: &Path, module_name: &str) -> anyhow::Result<()>
     // Run impact analysis
     let result = analyze_impact(&graph, module_name)?;
 
-    // Output results as text
-    print!("{}", formatters::format_text(&result));
+    // Output results as text with prefix grouping
+    print!("{}", formatters::format_text_grouped(&result));
 
     Ok(())
 }

@@ -190,9 +190,97 @@ pub mod formatters {
         }
 
         output.push_str(&format!(
+            "Total: {} modules impacted by {}\n",
+            result.total_affected_count, 
+            result.target_module
+        ));
+
+        output
+    }
+
+    /// Formats results with prefix grouping to reduce verbosity
+    pub fn format_text_grouped(result: &ImpactAnalysisResult) -> String {
+        let mut output = String::new();
+
+        output.push_str(&format!(
+            "Modules depending on '{}':\n",
+            result.target_module
+        ));
+
+        if result.affected_modules.is_empty() {
+            output.push_str("(no dependencies found)\n");
+        } else {
+            output.push_str(&format_grouped_modules(&result.affected_modules));
+        }
+
+        output.push_str(&format!(
             "Total: {} modules affected\n",
             result.total_affected_count
         ));
+
+        output
+    }
+
+    fn format_grouped_modules(modules: &[(String, super::DependencyType, usize)]) -> String {
+        use std::collections::HashMap;
+        
+        let mut output = String::new();
+        let mut current_prefix: Vec<String> = Vec::new();
+        
+        // Pre-calculate counts for all path prefixes
+        let mut prefix_counts: HashMap<String, usize> = HashMap::new();
+        for (module_path, _dep_type, count) in modules {
+            let segments: Vec<&str> = module_path.split('.').collect();
+            for i in 1..segments.len() {
+                let prefix = segments[0..i].join(".");
+                *prefix_counts.entry(prefix).or_insert(0) += count;
+            }
+        }
+
+        for (module_path, _dep_type, count) in modules {
+            let segments: Vec<String> = module_path.split('.').map(|s| s.to_string()).collect();
+            
+            // Find common prefix length
+            let common_len = current_prefix
+                .iter()
+                .zip(segments.iter())
+                .take_while(|(a, b)| a == b)
+                .count();
+            
+            // Output the new segments that differ from current prefix
+            for (i, segment) in segments.iter().enumerate() {
+                if i < common_len {
+                    continue; // Skip common prefix parts
+                }
+                
+                let indent = "  ".repeat(i);
+                let prefix_char = if i > 0 { "." } else { "" };
+                
+                if i == segments.len() - 1 {
+                    // This is the final segment - show count if > 1
+                    if *count > 1 {
+                        output.push_str(&format!("{}{}{} ({})\n", indent, prefix_char, segment, count));
+                    } else {
+                        output.push_str(&format!("{}{}{}\n", indent, prefix_char, segment));
+                    }
+                } else {
+                    // This is an intermediate segment - show count if it has multiple children
+                    let current_path = segments[0..=i].join(".");
+                    if let Some(&prefix_count) = prefix_counts.get(&current_path) {
+                        if prefix_count > 1 {
+                            output.push_str(&format!("{}{}{} ({})\n", indent, prefix_char, segment, prefix_count));
+                        } else {
+                            output.push_str(&format!("{}{}{}\n", indent, prefix_char, segment));
+                        }
+                    } else {
+                        output.push_str(&format!("{}{}{}\n", indent, prefix_char, segment));
+                    }
+                }
+            }
+            
+            // Update current prefix to this module's segments
+            current_prefix = segments;
+        }
 
         output
     }
@@ -266,6 +354,6 @@ mod tests {
         assert!(formatted.contains("Modules depending on 'utils':"));
         assert!(formatted.contains("main"));
         assert!(formatted.contains("(3 submodules) api"));
-        assert!(formatted.contains("Total: 4 modules affected"));
+        assert!(formatted.contains("Total: 4 modules impacted by utils"));
     }
 }
