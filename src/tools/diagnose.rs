@@ -22,6 +22,10 @@ pub struct DiagnoseResult {
     pub pressure_levels: (usize, usize, usize),
     /// Number of external dependencies
     pub external_dependency_count: usize,
+    /// External dependencies used in code but not declared in pyproject.toml
+    pub undeclared_dependencies: Vec<String>,
+    /// External dependencies declared in pyproject.toml but not used in code
+    pub unused_dependencies: Vec<String>,
 }
 
 /// Performs comprehensive diagnosis of the codebase
@@ -79,6 +83,8 @@ pub fn analyze_diagnose(graph: &DependencyGraph) -> Result<DiagnoseResult> {
         instability_quantiles,
         pressure_levels,
         external_dependency_count,
+        undeclared_dependencies: external_result.undeclared_dependencies,
+        unused_dependencies: external_result.unused_dependencies,
     })
 }
 
@@ -115,37 +121,58 @@ pub mod formatters {
         let (pressure_10, pressure_50, pressure_100) = result.pressure_levels;
         
         format!(
-            "CODEBASE ARCHITECTURE METRICS\n\
-             ==============================\n\n\
-             📊 OVERVIEW\n\
+            "=============================\n\
+             CODEBASE ARCHITECTURE METRICS\n\
+             =============================\n\n\
+             OVERVIEW\n\
              -----------\n\
              Total Modules: {}\n\
              External Dependencies: {}\n\n\
-             🔄 CIRCULAR DEPENDENCIES\n\
-             ------------------------\n\
+             CIRCULAR DEPENDENCIES\n\
+             ---------------------\n\
+             > Cycles weaken modularity, complicate testing, and can cause \n\
+             import-time failures and hidden side effects. Any non-zero count \n\
+             deserves attention.\n\
+             --\n\
              Count: {}\n\
              {}\n\
              {}\n\n\
-             ⚖️ INSTABILITY ANALYSIS\n\
-             -----------------------\n\
+             INSTABILITY ANALYSIS\n\
+             --------------------\n\
+             > Instability (≈ efferent / (afferent + efferent)) estimates how \n\
+             likely a module is to change when others change. Values near 0 → \n\
+             stable “foundations”; near 1 → volatile “leaves.”\n\
+             --\n\
              Average: {:.3}\n\
              10th percentile: {:.3}\n\
              50th percentile (median): {:.3}\n\
              90th percentile: {:.3}\n\
              {}\n\n\
-             🔥 PRESSURE POINTS\n\
-             ------------------\n\
+             PRESSURE POINTS\n\
+             ---------------\n\
+             > High fan-in modules are single points of failure; changes there \n\
+             have a wide blast radius and slow delivery.\n\
+             --\n\
              Modules with >10 dependents: {}\n\
              Modules with >50 dependents: {}\n\
              Modules with >100 dependents: {}\n\
-             {}\n",
+             {}\n\n\
+             EXTERNAL DEPENDENCIES\n\
+             ---------------------\n\
+             > Third-party code introduces supply-chain risk, compatibility \n\
+             issues, larger images, and longer cold starts.\n\
+             --\n\
+             Total used: {}\n\
+             Undeclared (used but not in pyproject.toml): {}\n\
+             Unused (in pyproject.toml but not used): {}\n\
+             {}\n\n",
             result.total_modules,
             result.external_dependency_count,
             result.cycle_count,
             if result.cycle_count > 0 { 
                 "⚠️ Circular dependencies found - consider refactoring" 
             } else { 
-                "✅ No circular dependencies detected" 
+                "" 
             },
             format_top_cycles(&result.top_cycles),
             result.avg_instability,
@@ -153,14 +180,18 @@ pub mod formatters {
             if result.avg_instability > 0.5 { 
                 "⚠️ High average instability - modules are highly coupled" 
             } else { 
-                "✅ Reasonable instability levels" 
+                "" 
             },
             pressure_10, pressure_50, pressure_100,
             if pressure_10 > 0 { 
                 "⚠️ High-pressure modules found - consider splitting large dependencies" 
             } else { 
-                "✅ No high-pressure modules detected" 
-            }
+                "" 
+            },
+            result.external_dependency_count,
+            result.undeclared_dependencies.len(),
+            result.unused_dependencies.len(),
+            format_external_issues(&result.undeclared_dependencies, &result.unused_dependencies)
         )
     }
     
@@ -172,13 +203,49 @@ pub mod formatters {
         
         let mut output = String::from("Top cycles by length:\n");
         for (i, cycle) in cycles.iter().enumerate() {
+            let cycle_str = truncate_string(&cycle.format_cycle(), 120);
             output.push_str(&format!(
                 "  {}. {} (length: {})\n", 
                 i + 1, 
-                cycle.format_cycle(),
+                cycle_str,
                 cycle.modules.len()
             ));
         }
         output
+    }
+    
+    /// Truncate string to max length with ellipsis
+    fn truncate_string(s: &str, max_len: usize) -> String {
+        if s.len() <= max_len {
+            s.to_string()
+        } else {
+            format!("{}...", &s[..max_len.saturating_sub(3)])
+        }
+    }
+    
+    /// Format external dependency issues for display
+    fn format_external_issues(undeclared: &[String], unused: &[String]) -> String {
+        let mut issues = Vec::new();
+        
+        if !undeclared.is_empty() {
+            let undeclared_str = truncate_string(&undeclared.join(", "), 120);
+            issues.push(format!("Undeclared: {}", undeclared_str));
+        }
+        
+        if !unused.is_empty() {
+            let unused_str = truncate_string(&unused.join(", "), 120);
+            issues.push(format!("Unused: {}", unused_str));
+        }
+        
+        if issues.is_empty() {
+            "✅ All external dependencies properly declared and used".to_string()
+        } else {
+            format!("⚠️ Issues found:\n{}", 
+                issues.iter()
+                    .map(|issue| format!("  • {}", issue))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            )
+        }
     }
 }
