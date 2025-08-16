@@ -21,10 +21,13 @@ pub fn get_impact_analysis(
     let mut affected_modules = graph.get_transitive_dependents_with_types(module_id)?;
 
     // Filter out test modules
-    affected_modules.retain(|(module_path, _)| !module_path.contains(".tests.") && !module_path.ends_with(".tests"));
+    affected_modules.retain(|(module_path, _)| {
+        !module_path.contains(".tests.") && !module_path.ends_with(".tests")
+    });
 
     // Add parent modules if all their submodules are affected
-    let additional_parents = find_parent_modules_with_all_children_affected(graph, &affected_modules)?;
+    let additional_parents =
+        find_parent_modules_with_all_children_affected(graph, &affected_modules)?;
     affected_modules.extend(additional_parents);
 
     let total_count = affected_modules.len();
@@ -43,16 +46,17 @@ fn find_parent_modules_with_all_children_affected(
 
     // Create a set of affected module names for quick lookup
     let affected_set: HashSet<&String> = affected_modules.iter().map(|(name, _)| name).collect();
-    
+
     // Build parent-to-children mapping using graph's Contains relationships
     let mut parent_to_children: HashMap<String, Vec<String>> = HashMap::new();
-    
+
     // Get all modules in the graph and look for Contains relationships
     for parent_module in graph.all_modules() {
         let parent_path = &parent_module.canonical_path;
-        
+
         // Find all modules that this parent contains
-        let children = graph.get_dependencies_with_types(parent_module)
+        let children = graph
+            .get_dependencies_with_types(parent_module)
             .unwrap_or_else(|_| Vec::new())
             .into_iter()
             .filter_map(|(child_path, dep_type)| {
@@ -63,28 +67,28 @@ fn find_parent_modules_with_all_children_affected(
                 }
             })
             .collect::<Vec<_>>();
-        
+
         if !children.is_empty() {
             parent_to_children.insert(parent_path.clone(), children);
         }
     }
-    
+
     let mut additional_parents = Vec::new();
-    
+
     // For each parent, check if all its direct children are affected
     for (parent_path, children) in parent_to_children {
         // Skip if the parent is already in the affected list
         if affected_set.contains(&parent_path) {
             continue;
         }
-        
+
         // Check if ALL direct children are affected
         if !children.is_empty() && children.iter().all(|child| affected_set.contains(child)) {
             // All children are affected, so the parent should be affected too
             additional_parents.push((parent_path, DependencyType::Imports));
         }
     }
-    
+
     Ok(additional_parents)
 }
 
@@ -113,11 +117,12 @@ fn filter_hierarchical(
 
     for (module_path, dep_type) in modules {
         // Check if any module already in result is a parent of this module
-        let parent_index = result
-            .iter()
-            .position(|(existing_path, _, _): &(String, DependencyType, usize)| {
-                module_path.starts_with(&format!("{}.", existing_path))
-            });
+        let parent_index =
+            result
+                .iter()
+                .position(|(existing_path, _, _): &(String, DependencyType, usize)| {
+                    module_path.starts_with(&format!("{}.", existing_path))
+                });
 
         if let Some(index) = parent_index {
             // This module is a child of an existing parent, increment the parent's count
@@ -126,7 +131,7 @@ fn filter_hierarchical(
             // Count how many existing modules are children of this module
             let mut child_count = 1; // Count self
             let mut indices_to_remove = Vec::new();
-            
+
             for (i, (existing_path, _, existing_count)) in result.iter().enumerate() {
                 if existing_path.starts_with(&format!("{}.", module_path)) {
                     child_count += existing_count;
@@ -168,18 +173,25 @@ pub fn analyze_impact(graph: &DependencyGraph, module_name: &str) -> Result<Impa
 pub mod formatters {
     use super::ImpactAnalysisResult;
 
+    // Constants for formatting
+    const INDENT: &str = "  ";
+    const NO_DEPENDENCIES_MSG: &str = "(no dependencies found)";
+    const DOT_SEPARATOR: &str = ".";
+
+    /// Common formatting structure for all output formats
+    fn format_with_body(result: &ImpactAnalysisResult, body: String) -> String {
+        format!(
+            "Modules depending on '{}':\n{}Total: {} modules impacted by {}\n",
+            result.target_module, body, result.total_affected_count, result.target_module
+        )
+    }
+
     /// Formats results as human-readable text
     pub fn format_text(result: &ImpactAnalysisResult) -> String {
-        let mut output = String::new();
-
-        output.push_str(&format!(
-            "Modules depending on '{}':\n",
-            result.target_module
-        ));
-
-        if result.affected_modules.is_empty() {
-            output.push_str("(no dependencies found)\n");
+        let body = if result.affected_modules.is_empty() {
+            format!("{}\n", NO_DEPENDENCIES_MSG)
         } else {
+            let mut output = String::new();
             for (module, _dep_type, count) in &result.affected_modules {
                 if *count > 1 {
                     output.push_str(&format!("({} submodules) {}\n", count, module));
@@ -187,99 +199,105 @@ pub mod formatters {
                     output.push_str(&format!("{}\n", module));
                 }
             }
-        }
+            output
+        };
 
-        output.push_str(&format!(
-            "Total: {} modules impacted by {}\n",
-            result.total_affected_count, 
-            result.target_module
-        ));
-
-        output
+        format_with_body(result, body)
     }
 
     /// Formats results with prefix grouping to reduce verbosity
     pub fn format_text_grouped(result: &ImpactAnalysisResult) -> String {
-        let mut output = String::new();
-
-        output.push_str(&format!(
-            "Modules depending on '{}':\n",
-            result.target_module
-        ));
-
-        if result.affected_modules.is_empty() {
-            output.push_str("(no dependencies found)\n");
+        let body = if result.affected_modules.is_empty() {
+            format!("{}\n", NO_DEPENDENCIES_MSG)
         } else {
-            output.push_str(&format_grouped_modules(&result.affected_modules));
-        }
+            format_grouped_modules(&result.affected_modules)
+        };
 
-        output.push_str(&format!(
-            "Total: {} modules impacted by {}\n",
-            result.total_affected_count,
-            result.target_module
-        ));
-
-        output
+        format_with_body(result, body)
     }
 
-    fn format_grouped_modules(modules: &[(String, super::DependencyType, usize)]) -> String {
+    /// Calculates prefix counts for hierarchical grouping
+    fn calculate_prefix_counts(
+        modules: &[(String, super::DependencyType, usize)],
+    ) -> std::collections::HashMap<String, usize> {
         use std::collections::HashMap;
-        
-        let mut output = String::new();
-        let mut current_prefix: Vec<String> = Vec::new();
-        
-        // Pre-calculate counts for all path prefixes
+
         let mut prefix_counts: HashMap<String, usize> = HashMap::new();
         for (module_path, _dep_type, count) in modules {
-            let segments: Vec<&str> = module_path.split('.').collect();
+            let segments: Vec<&str> = module_path.split(DOT_SEPARATOR).collect();
             for i in 1..segments.len() {
-                let prefix = segments[0..i].join(".");
+                let prefix = segments[0..i].join(DOT_SEPARATOR);
                 *prefix_counts.entry(prefix).or_insert(0) += count;
             }
         }
+        prefix_counts
+    }
+
+    /// Formats a single segment with appropriate indentation and count
+    fn format_segment(
+        indent_level: usize,
+        segment: &str,
+        count: Option<usize>,
+        is_root: bool,
+    ) -> String {
+        let indent = INDENT.repeat(indent_level);
+        let prefix_char = if is_root { "" } else { DOT_SEPARATOR };
+
+        match count {
+            Some(c) if c > 1 => format!("{}{}{} ({})\n", indent, prefix_char, segment, c),
+            _ => format!("{}{}{}\n", indent, prefix_char, segment),
+        }
+    }
+
+    /// Finds the common prefix length between two module paths
+    fn find_common_prefix_length(current: &[String], new: &[String]) -> usize {
+        current
+            .iter()
+            .zip(new.iter())
+            .take_while(|(a, b)| a == b)
+            .count()
+    }
+
+    /// Main function for formatting modules with hierarchical grouping
+    fn format_grouped_modules(modules: &[(String, super::DependencyType, usize)]) -> String {
+        let mut output = String::new();
+        let mut current_prefix: Vec<String> = Vec::new();
+        let prefix_counts = calculate_prefix_counts(modules);
 
         for (module_path, _dep_type, count) in modules {
-            let segments: Vec<String> = module_path.split('.').map(|s| s.to_string()).collect();
-            
-            // Find common prefix length
-            let common_len = current_prefix
-                .iter()
-                .zip(segments.iter())
-                .take_while(|(a, b)| a == b)
-                .count();
-            
-            // Output the new segments that differ from current prefix
-            for (i, segment) in segments.iter().enumerate() {
-                if i < common_len {
-                    continue; // Skip common prefix parts
-                }
-                
-                let indent = "  ".repeat(i);
-                let prefix_char = if i > 0 { "." } else { "" };
-                
-                if i == segments.len() - 1 {
-                    // This is the final segment - show count if > 1
-                    if *count > 1 {
-                        output.push_str(&format!("{}{}{} ({})\n", indent, prefix_char, segment, count));
-                    } else {
-                        output.push_str(&format!("{}{}{}\n", indent, prefix_char, segment));
-                    }
+            let segments: Vec<String> = module_path
+                .split(DOT_SEPARATOR)
+                .map(|s| s.to_string())
+                .collect();
+            let common_len = find_common_prefix_length(&current_prefix, &segments);
+
+            // Pre-compute path for efficiency
+            let mut current_path = String::new();
+
+            // Output new segments that differ from current prefix
+            for (i, segment) in segments.iter().enumerate().skip(common_len) {
+                let is_final_segment = i == segments.len() - 1;
+                let is_root_segment = i == 0;
+
+                // Build path incrementally instead of joining repeatedly
+                if i == 0 {
+                    current_path = segment.clone();
                 } else {
-                    // This is an intermediate segment - show count if it has multiple children
-                    let current_path = segments[0..=i].join(".");
-                    if let Some(&prefix_count) = prefix_counts.get(&current_path) {
-                        if prefix_count > 1 {
-                            output.push_str(&format!("{}{}{} ({})\n", indent, prefix_char, segment, prefix_count));
-                        } else {
-                            output.push_str(&format!("{}{}{}\n", indent, prefix_char, segment));
-                        }
-                    } else {
-                        output.push_str(&format!("{}{}{}\n", indent, prefix_char, segment));
-                    }
+                    current_path.push_str(DOT_SEPARATOR);
+                    current_path.push_str(segment);
                 }
+
+                let segment_count = if is_final_segment {
+                    // Final segment shows the module's count
+                    if *count > 1 { Some(*count) } else { None }
+                } else {
+                    // Intermediate segment shows prefix count if > 1
+                    prefix_counts.get(&current_path).copied().filter(|&c| c > 1)
+                };
+
+                output.push_str(&format_segment(i, segment, segment_count, is_root_segment));
             }
-            
-            // Update current prefix to this module's segments
+
             current_prefix = segments;
         }
 
