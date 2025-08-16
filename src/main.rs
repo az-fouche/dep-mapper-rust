@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use dep_mapper::crawler::build_directory_dependency_graph;
+use dep_mapper::tools::cycles::{detect_cycles, formatters as cycle_formatters};
 use dep_mapper::tools::dependencies::{analyze_dependencies, formatters as dep_formatters};
 use dep_mapper::tools::impact::{analyze_impact, formatters};
 use std::path::Path;
@@ -32,6 +33,9 @@ enum Commands {
         /// Module name to analyze for dependencies
         module_name: String,
     },
+
+    /// Detect and report circular dependencies in the codebase
+    Cycles,
 }
 
 fn main() {
@@ -65,6 +69,12 @@ fn main() {
                 }
             }
         }
+        Commands::Cycles => match run_cycles_analysis(dir_path) {
+            Ok(()) => {}
+            Err(e) => {
+                eprintln!("Error running cycles analysis: {}", e);
+            }
+        },
     }
 }
 
@@ -90,6 +100,19 @@ fn run_dependencies_analysis(dir_path: &Path, module_name: &str) -> anyhow::Resu
 
     // Output results as text with prefix grouping
     print!("{}", dep_formatters::format_text_grouped(&result));
+
+    Ok(())
+}
+
+fn run_cycles_analysis(dir_path: &Path) -> anyhow::Result<()> {
+    // Build the dependency graph
+    let graph = build_directory_dependency_graph(dir_path)?;
+
+    // Run cycle detection
+    let result = detect_cycles(&graph)?;
+
+    // Output results as text with prefix grouping
+    print!("{}", cycle_formatters::format_text_grouped(&result));
 
     Ok(())
 }

@@ -100,7 +100,7 @@ impl DependencyGraph {
     }
 
     /// Returns NodeIndex of a module_id or an error if not found.
-    fn get_node_index(&self, module_id: &ModuleIdentifier) -> Result<NodeIndex> {
+    pub fn get_node_index(&self, module_id: &ModuleIdentifier) -> Result<NodeIndex> {
         self.module_index.get(module_id).copied().ok_or_else(|| {
             anyhow::anyhow!("Module '{}' not found in graph", module_id.canonical_path)
         })
@@ -214,6 +214,7 @@ impl DependencyGraph {
     ///
     /// Traverses `Contains` edges downward, then collects outgoing edges from each visited node.
     /// Returns (dependency_module, dependency_type_from_that_child). De-duplicates by dependency module name.
+    /// Excludes dependencies that point back to ancestor modules to avoid artificial cycles.
     pub fn get_transitive_dependencies_with_types(
         &self,
         module_id: &ModuleIdentifier,
@@ -228,6 +229,10 @@ impl DependencyGraph {
                     continue;
                 }
                 if let Some(dependency_module) = self.graph.node_weight(edge.target()) {
+                    // Skip dependencies that point back to ancestor modules
+                    if utils::is_ancestor_module(&module_id.canonical_path, dependency_module) {
+                        continue;
+                    }
                     if seen_dependencies.insert(dependency_module.clone()) {
                         result.push((dependency_module.clone(), edge.weight().clone()));
                     }
@@ -290,6 +295,19 @@ pub mod utils {
         } else {
             None
         }
+    }
+
+    /// Checks if `potential_ancestor` is an ancestor of `module_path` in the module hierarchy.
+    ///
+    /// Returns true if `potential_ancestor` is a parent, grandparent, etc. of `module_path`.
+    /// For example: is_ancestor_module("common", "common.datasets.utils") returns true.
+    pub fn is_ancestor_module(potential_ancestor: &str, module_path: &str) -> bool {
+        if potential_ancestor == module_path {
+            return true;
+        }
+
+        module_path.starts_with(potential_ancestor)
+            && module_path.chars().nth(potential_ancestor.len()) == Some('.')
     }
 }
 
@@ -563,6 +581,34 @@ mod tests {
         assert_eq!(get_direct_parent_module("numpy"), None);
         assert_eq!(get_direct_parent_module(""), None);
         assert_eq!(get_direct_parent_module("single"), None);
+    }
+
+    #[test]
+    fn test_is_ancestor_module() {
+        use super::utils::is_ancestor_module;
+
+        // Self-relationship
+        assert!(is_ancestor_module("common", "common"));
+
+        // Direct parent-child
+        assert!(is_ancestor_module("common", "common.datasets"));
+        assert!(!is_ancestor_module("common.datasets", "common"));
+
+        // Multi-level ancestry
+        assert!(is_ancestor_module("common", "common.datasets.utils"));
+        assert!(is_ancestor_module(
+            "common.datasets",
+            "common.datasets.utils"
+        ));
+        assert!(!is_ancestor_module("common.datasets.utils", "common"));
+
+        // Non-related modules
+        assert!(!is_ancestor_module("common", "eva"));
+        assert!(!is_ancestor_module("common", "eva.common"));
+
+        // Partial matches should not count
+        assert!(!is_ancestor_module("common", "commonality"));
+        assert!(!is_ancestor_module("com", "common"));
     }
 
     #[test]
