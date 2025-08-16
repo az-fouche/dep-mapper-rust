@@ -1,12 +1,17 @@
 use crate::graph::DependencyGraph;
 use crate::imports::ModuleOrigin;
+use crate::pyproject;
 use anyhow::Result;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::process::Command;
+use std::sync::OnceLock;
 
 #[derive(Debug)]
 pub struct ExternalAnalysisResult {
     pub frequency_analysis: Vec<DependencyUsage>,
     pub summary: ExternalDependencySummary,
+    pub undeclared_dependencies: Vec<String>,
+    pub unused_dependencies: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -22,6 +27,7 @@ pub struct ExternalDependencySummary {
 }
 
 pub fn analyze_external_dependencies(graph: &DependencyGraph) -> Result<ExternalAnalysisResult> {
+    let stdlib_modules = get_python_standard_library_modules();
     let mut package_usage: HashMap<String, Vec<String>> = HashMap::new();
 
     // Count usage of external packages across internal modules
@@ -37,6 +43,11 @@ pub fn analyze_external_dependencies(graph: &DependencyGraph) -> Result<External
                 {
                     // Extract root package name (e.g., numpy.testing -> numpy)
                     let package_name = extract_root_package_name(&external_module.canonical_path);
+
+                    // Skip Python standard library modules
+                    if stdlib_modules.contains(&package_name) {
+                        continue;
+                    }
 
                     package_usage
                         .entry(package_name)
@@ -69,6 +80,31 @@ pub fn analyze_external_dependencies(graph: &DependencyGraph) -> Result<External
             .then_with(|| a.package_name.cmp(&b.package_name))
     });
 
+    // Get declared dependencies from pyproject.toml
+    let declared_deps: HashSet<String> = pyproject::get_declared_dependencies()?
+        .into_iter()
+        .collect();
+    
+    // Get actually used dependencies
+    let used_deps: HashSet<String> = frequency_analysis
+        .iter()
+        .map(|dep| dep.package_name.clone())
+        .collect();
+
+    // Find undeclared dependencies (used but not declared in pyproject.toml)
+    let mut undeclared_dependencies: Vec<String> = used_deps
+        .difference(&declared_deps)
+        .cloned()
+        .collect();
+    undeclared_dependencies.sort();
+
+    // Find unused dependencies (declared but not used)
+    let mut unused_dependencies: Vec<String> = declared_deps
+        .difference(&used_deps)
+        .cloned()
+        .collect();
+    unused_dependencies.sort();
+
     let summary = ExternalDependencySummary {
         total_used_packages: frequency_analysis.len(),
     };
@@ -76,6 +112,80 @@ pub fn analyze_external_dependencies(graph: &DependencyGraph) -> Result<External
     Ok(ExternalAnalysisResult {
         frequency_analysis,
         summary,
+        undeclared_dependencies,
+        unused_dependencies,
+    })
+}
+
+/// Cached Python standard library modules
+static PYTHON_STDLIB_MODULES: OnceLock<HashSet<String>> = OnceLock::new();
+
+/// Get Python standard library modules by calling Python subprocess
+fn get_python_standard_library_modules() -> &'static HashSet<String> {
+    PYTHON_STDLIB_MODULES.get_or_init(|| {
+        // Try to call Python to get stdlib modules
+        match Command::new("python3")
+            .args(["-c", "import sys; print('\\n'.join(sys.stdlib_module_names))"])
+            .output()
+        {
+            Ok(output) if output.status.success() => {
+                let result: HashSet<String> = String::from_utf8_lossy(&output.stdout)
+                    .lines()
+                    .map(|line| line.trim().to_string())
+                    .filter(|line| !line.is_empty())
+                    .collect();
+                
+                // Debug output for tests
+                #[cfg(test)]
+                eprintln!("Python3 call succeeded, got {} modules", result.len());
+                
+                result
+            }
+            Ok(_output) => {
+                #[cfg(test)]
+                eprintln!("Python3 call failed with exit code: {:?}", _output.status);
+                
+                // Fallback: try python instead of python3
+                match Command::new("python")
+                    .args(["-c", "import sys; print('\\n'.join(sys.stdlib_module_names))"])
+                    .output()
+                {
+                    Ok(output) if output.status.success() => {
+                        let result: HashSet<String> = String::from_utf8_lossy(&output.stdout)
+                            .lines()
+                            .map(|line| line.trim().to_string())
+                            .filter(|line| !line.is_empty())
+                            .collect();
+                        
+                        #[cfg(test)]
+                        eprintln!("Python call succeeded, got {} modules", result.len());
+                        
+                        result
+                    }
+                    Ok(_output) => {
+                        #[cfg(test)]
+                        eprintln!("Python call failed with exit code: {:?}", _output.status);
+                        
+                        // If Python call fails, return empty set
+                        HashSet::new()
+                    }
+                    Err(_e2) => {
+                        #[cfg(test)]
+                        eprintln!("Python call also failed: {}", _e2);
+                        
+                        // If Python call fails, return empty set
+                        HashSet::new()
+                    }
+                }
+            }
+            Err(_e) => {
+                #[cfg(test)]
+                eprintln!("Python3 command failed: {}", _e);
+                
+                // If Python call fails, return empty set
+                HashSet::new()
+            }
+        }
     })
 }
 
@@ -159,6 +269,41 @@ pub mod formatters {
             result.summary.total_used_packages
         ));
 
+        // Add undeclared dependencies section
+        if !result.undeclared_dependencies.is_empty() {
+            output.push_str("\n=== Undeclared Dependencies ===\n");
+            output.push_str("(Used in code but not declared in pyproject.toml)\n");
+            for dep in &result.undeclared_dependencies {
+                output.push_str(&format!("  {}\n", dep));
+            }
+        }
+
+        // Add unused dependencies section
+        if !result.unused_dependencies.is_empty() {
+            output.push_str("\n=== Unused Dependencies ===\n");
+            output.push_str("(Declared in pyproject.toml but not used in code)\n");
+            for dep in &result.unused_dependencies {
+                output.push_str(&format!("  {}\n", dep));
+            }
+        }
+
+        // Add diff summary
+        if !result.undeclared_dependencies.is_empty() || !result.unused_dependencies.is_empty() {
+            output.push_str("\n=== Dependency Sync Status ===\n");
+            output.push_str(&format!(
+                "Undeclared dependencies: {}\n",
+                result.undeclared_dependencies.len()
+            ));
+            output.push_str(&format!(
+                "Unused dependencies: {}\n",
+                result.unused_dependencies.len()
+            ));
+        } else {
+            output.push_str("\n=== Dependency Sync Status ===\n");
+            output.push_str("✓ All used dependencies are properly declared in pyproject.toml\n");
+            output.push_str("✓ No unused dependencies found\n");
+        }
+
         output
     }
 }
@@ -234,5 +379,141 @@ mod tests {
 
         assert_eq!(numpy_usage.usage_count, 2); // used by both internal1 (directly) and internal2 (via numpy.testing)
         assert_eq!(pandas_usage.usage_count, 1); // used by internal1 only
+        
+        // Note: This test doesn't have a pyproject.toml, so these should be undeclared
+        assert!(result.undeclared_dependencies.contains(&"numpy".to_string()));
+        assert!(result.undeclared_dependencies.contains(&"pandas".to_string()));
+        assert!(result.unused_dependencies.is_empty()); // No pyproject.toml means no declared deps
+    }
+
+    #[test]
+    fn test_stdlib_modules_filtered_out() {
+        let mut graph = DependencyGraph::new();
+
+        // Add internal module
+        let internal1 = create_test_module_id("myapp.main", ModuleOrigin::Internal);
+
+        // Add external modules - mix of real external and stdlib modules
+        let numpy_id = create_test_module_id("numpy", ModuleOrigin::External);
+        let sys_id = create_test_module_id("sys", ModuleOrigin::External);
+        let os_id = create_test_module_id("os", ModuleOrigin::External);
+        let json_id = create_test_module_id("json", ModuleOrigin::External);
+
+        graph.add_module(internal1.clone());
+        graph.add_module(numpy_id.clone());
+        graph.add_module(sys_id.clone());
+        graph.add_module(os_id.clone());
+        graph.add_module(json_id.clone());
+
+        // Add dependencies: internal module imports both external and stdlib modules
+        graph
+            .add_dependency(&internal1, &numpy_id, DependencyType::Imports)
+            .unwrap();
+        graph
+            .add_dependency(&internal1, &sys_id, DependencyType::Imports)
+            .unwrap();
+        graph
+            .add_dependency(&internal1, &os_id, DependencyType::Imports)
+            .unwrap();
+        graph
+            .add_dependency(&internal1, &json_id, DependencyType::Imports)
+            .unwrap();
+
+        let result = analyze_external_dependencies(&graph).unwrap();
+
+        // Should only include numpy, not stdlib modules (sys, os, json)
+        assert_eq!(result.summary.total_used_packages, 1);
+        assert_eq!(result.frequency_analysis.len(), 1);
+        assert_eq!(result.frequency_analysis[0].package_name, "numpy");
+        
+        // numpy should be undeclared since no pyproject.toml
+        assert!(result.undeclared_dependencies.contains(&"numpy".to_string()));
+        assert!(result.unused_dependencies.is_empty());
+    }
+
+    #[test]
+    fn test_dependency_diff_analysis() {
+        use crate::pyproject::{init, PyProjectParser};
+        use std::fs;
+        use tempfile::TempDir;
+        
+        let temp_dir = TempDir::new().unwrap();
+        
+        // Create a mock pyproject.toml with some dependencies
+        let pyproject_content = r#"
+[tool.poetry.dependencies]
+python = ">=3.10,<3.11"
+numpy = "^1.24.3"
+pandas = "^2.0.3"
+unused-package = "^1.0.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.3.1"
+"#;
+        fs::write(temp_dir.path().join("pyproject.toml"), pyproject_content).unwrap();
+        
+        // Initialize pyproject parser with temp directory
+        init(temp_dir.path());
+        
+        let mut graph = DependencyGraph::new();
+
+        // Add internal module
+        let internal1 = create_test_module_id("myapp.main", ModuleOrigin::Internal);
+
+        // Add external modules - some declared, some not
+        let numpy_id = create_test_module_id("numpy", ModuleOrigin::External);
+        let torch_id = create_test_module_id("torch", ModuleOrigin::External); // undeclared
+        let sklearn_id = create_test_module_id("sklearn", ModuleOrigin::External); // undeclared
+
+        graph.add_module(internal1.clone());
+        graph.add_module(numpy_id.clone());
+        graph.add_module(torch_id.clone());
+        graph.add_module(sklearn_id.clone());
+
+        // Add dependencies: use numpy and torch, but not pandas/pytest/unused-package
+        graph
+            .add_dependency(&internal1, &numpy_id, DependencyType::Imports)
+            .unwrap();
+        graph
+            .add_dependency(&internal1, &torch_id, DependencyType::Imports)
+            .unwrap();
+        graph
+            .add_dependency(&internal1, &sklearn_id, DependencyType::Imports)
+            .unwrap();
+
+        let result = analyze_external_dependencies(&graph).unwrap();
+
+        // Should find 3 used packages
+        assert_eq!(result.summary.total_used_packages, 3);
+        assert_eq!(result.frequency_analysis.len(), 3);
+        
+        // Check undeclared dependencies (used but not in pyproject.toml)
+        assert!(result.undeclared_dependencies.contains(&"torch".to_string()));
+        assert!(result.undeclared_dependencies.contains(&"sklearn".to_string()));
+        assert!(!result.undeclared_dependencies.contains(&"numpy".to_string())); // numpy is declared
+        assert_eq!(result.undeclared_dependencies.len(), 2);
+        
+        // Check unused dependencies (in pyproject.toml but not used)
+        assert!(result.unused_dependencies.contains(&"pandas".to_string()));
+        assert!(result.unused_dependencies.contains(&"pytest".to_string()));
+        assert!(result.unused_dependencies.contains(&"unused-package".to_string()));
+        assert!(!result.unused_dependencies.contains(&"numpy".to_string())); // numpy is used
+        assert_eq!(result.unused_dependencies.len(), 3);
+    }
+
+    #[test]
+    fn test_get_python_standard_library_modules() {
+        let stdlib_modules = get_python_standard_library_modules();
+        
+        // Should contain common stdlib modules
+        assert!(stdlib_modules.contains("sys"));
+        assert!(stdlib_modules.contains("os"));
+        assert!(stdlib_modules.contains("json"));
+        assert!(stdlib_modules.contains("collections"));
+        
+        // Should not contain external packages
+        assert!(!stdlib_modules.contains("numpy"));
+        assert!(!stdlib_modules.contains("pandas"));
+        assert!(!stdlib_modules.contains("torch"));
     }
 }
