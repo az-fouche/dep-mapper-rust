@@ -7,8 +7,8 @@ use anyhow::Result;
 pub struct ImpactAnalysisResult {
     /// The module that was analyzed
     pub target_module: String,
-    /// Modules affected by changes to the target (deduplicated)
-    pub affected_modules: Vec<(String, DependencyType)>,
+    /// Modules affected by changes to the target (deduplicated) with submodule counts
+    pub affected_modules: Vec<(String, DependencyType, usize)>,
     /// Total count before deduplication
     pub total_affected_count: usize,
 }
@@ -16,20 +16,83 @@ pub struct ImpactAnalysisResult {
 pub fn get_impact_analysis(
     graph: &DependencyGraph,
     module_id: &ModuleIdentifier,
-) -> Result<(Vec<(String, DependencyType)>, usize)> {
+) -> Result<(Vec<(String, DependencyType, usize)>, usize)> {
     // Collect dependents of the module and of all its descendants.
-    let affected_modules = graph.get_transitive_dependents_with_types(module_id)?;
+    let mut affected_modules = graph.get_transitive_dependents_with_types(module_id)?;
+
+    // Filter out test modules
+    affected_modules.retain(|(module_path, _)| !module_path.contains(".tests.") && !module_path.ends_with(".tests"));
+
+    // Add parent modules if all their submodules are affected
+    let additional_parents = find_parent_modules_with_all_children_affected(graph, &affected_modules)?;
+    affected_modules.extend(additional_parents);
 
     let total_count = affected_modules.len();
-    let deduplicated = deduplicate_hierarchical_modules(affected_modules);
+    let deduplicated = filter_hierarchical(affected_modules);
 
     Ok((deduplicated, total_count))
 }
 
-/// Deduplicates a list of modules by removing children when their parent is present.
-fn deduplicate_hierarchical_modules(
+/// Finds parent modules where all their direct children are in the affected list.
+/// Returns additional parent modules that should be considered affected.
+fn find_parent_modules_with_all_children_affected(
+    graph: &DependencyGraph,
+    affected_modules: &[(String, DependencyType)],
+) -> Result<Vec<(String, DependencyType)>> {
+    use std::collections::{HashMap, HashSet};
+
+    // Create a set of affected module names for quick lookup
+    let affected_set: HashSet<&String> = affected_modules.iter().map(|(name, _)| name).collect();
+    
+    // Build parent-to-children mapping using graph's Contains relationships
+    let mut parent_to_children: HashMap<String, Vec<String>> = HashMap::new();
+    
+    // Get all modules in the graph and look for Contains relationships
+    for parent_module in graph.all_modules() {
+        let parent_path = &parent_module.canonical_path;
+        
+        // Find all modules that this parent contains
+        let children = graph.get_dependencies_with_types(parent_module)
+            .unwrap_or_else(|_| Vec::new())
+            .into_iter()
+            .filter_map(|(child_path, dep_type)| {
+                if dep_type == DependencyType::Contains {
+                    Some(child_path)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        
+        if !children.is_empty() {
+            parent_to_children.insert(parent_path.clone(), children);
+        }
+    }
+    
+    let mut additional_parents = Vec::new();
+    
+    // For each parent, check if all its direct children are affected
+    for (parent_path, children) in parent_to_children {
+        // Skip if the parent is already in the affected list
+        if affected_set.contains(&parent_path) {
+            continue;
+        }
+        
+        // Check if ALL direct children are affected
+        if !children.is_empty() && children.iter().all(|child| affected_set.contains(child)) {
+            // All children are affected, so the parent should be affected too
+            additional_parents.push((parent_path, DependencyType::Imports));
+        }
+    }
+    
+    Ok(additional_parents)
+}
+
+/// Deduplicates a list of modules by removing children when their parent is present,
+/// and tracks how many original modules each deduplicated entry represents.
+fn filter_hierarchical(
     mut modules: Vec<(String, DependencyType)>,
-) -> Vec<(String, DependencyType)> {
+) -> Vec<(String, DependencyType, usize)> {
     use std::collections::HashMap;
 
     // First, deduplicate exact module names, keeping first dependency type
@@ -50,20 +113,33 @@ fn deduplicate_hierarchical_modules(
 
     for (module_path, dep_type) in modules {
         // Check if any module already in result is a parent of this module
-        let is_child_of_existing =
-            result
-                .iter()
-                .any(|(existing_path, _): &(String, DependencyType)| {
-                    module_path.starts_with(&format!("{}.", existing_path))
-                });
-
-        if !is_child_of_existing {
-            // Remove any existing modules that are children of this module
-            result.retain(|(existing_path, _): &(String, DependencyType)| {
-                !existing_path.starts_with(&format!("{}.", module_path))
+        let parent_index = result
+            .iter()
+            .position(|(existing_path, _, _): &(String, DependencyType, usize)| {
+                module_path.starts_with(&format!("{}.", existing_path))
             });
 
-            result.push((module_path, dep_type));
+        if let Some(index) = parent_index {
+            // This module is a child of an existing parent, increment the parent's count
+            result[index].2 += 1;
+        } else {
+            // Count how many existing modules are children of this module
+            let mut child_count = 1; // Count self
+            let mut indices_to_remove = Vec::new();
+            
+            for (i, (existing_path, _, existing_count)) in result.iter().enumerate() {
+                if existing_path.starts_with(&format!("{}.", module_path)) {
+                    child_count += existing_count;
+                    indices_to_remove.push(i);
+                }
+            }
+
+            // Remove children in reverse order to maintain indices
+            for &i in indices_to_remove.iter().rev() {
+                result.remove(i);
+            }
+
+            result.push((module_path, dep_type, child_count));
         }
     }
 
@@ -104,8 +180,12 @@ pub mod formatters {
         if result.affected_modules.is_empty() {
             output.push_str("(no dependencies found)\n");
         } else {
-            for (module, dep_type) in &result.affected_modules {
-                output.push_str(&format!("- {} ({:?})\n", module, dep_type));
+            for (module, _dep_type, count) in &result.affected_modules {
+                if *count > 1 {
+                    output.push_str(&format!("({} submodules) {}\n", count, module));
+                } else {
+                    output.push_str(&format!("{}\n", module));
+                }
             }
         }
 
@@ -163,7 +243,7 @@ mod tests {
         let affected_names: Vec<&String> = result
             .affected_modules
             .iter()
-            .map(|(name, _)| name)
+            .map(|(name, _, _)| name)
             .collect();
         assert!(affected_names.contains(&&"utils".to_string()));
         assert!(affected_names.contains(&&"main".to_string()));
@@ -175,17 +255,17 @@ mod tests {
         let result = ImpactAnalysisResult {
             target_module: "utils".to_string(),
             affected_modules: vec![
-                ("main".to_string(), DependencyType::Imports),
-                ("api".to_string(), DependencyType::Imports),
+                ("main".to_string(), DependencyType::Imports, 1),
+                ("api".to_string(), DependencyType::Imports, 3),
             ],
-            total_affected_count: 2,
+            total_affected_count: 4,
         };
 
         let formatted = formatters::format_text(&result);
 
         assert!(formatted.contains("Modules depending on 'utils':"));
-        assert!(formatted.contains("- main (Imports)"));
-        assert!(formatted.contains("- api (Imports)"));
-        assert!(formatted.contains("Total: 2 modules affected"));
+        assert!(formatted.contains("main"));
+        assert!(formatted.contains("(3 submodules) api"));
+        assert!(formatted.contains("Total: 4 modules affected"));
     }
 }
