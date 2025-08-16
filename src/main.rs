@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use dep_mapper::crawler::build_directory_dependency_graph;
+use dep_mapper::tools::dependencies::{analyze_dependencies, formatters as dep_formatters};
 use dep_mapper::tools::impact::{analyze_impact, formatters};
 use std::path::Path;
 
@@ -23,6 +24,12 @@ enum Commands {
     /// Identify all modules that depend on the specified module (blast radius analysis)
     Impact {
         /// Module name to analyze for impact
+        module_name: String,
+    },
+
+    /// Show all dependencies of the specified module
+    Dependencies {
+        /// Module name to analyze for dependencies
         module_name: String,
     },
 }
@@ -50,6 +57,14 @@ fn main() {
                 eprintln!("Error running impact analysis: {}", e);
             }
         },
+        Commands::Dependencies { module_name } => {
+            match run_dependencies_analysis(dir_path, &module_name) {
+                Ok(()) => {}
+                Err(e) => {
+                    eprintln!("Error running dependencies analysis: {}", e);
+                }
+            }
+        }
     }
 }
 
@@ -62,6 +77,19 @@ fn run_impact_analysis(dir_path: &Path, module_name: &str) -> anyhow::Result<()>
 
     // Output results as text with prefix grouping
     print!("{}", formatters::format_text_grouped(&result));
+
+    Ok(())
+}
+
+fn run_dependencies_analysis(dir_path: &Path, module_name: &str) -> anyhow::Result<()> {
+    // Build the dependency graph
+    let graph = build_directory_dependency_graph(dir_path)?;
+
+    // Run dependencies analysis
+    let result = analyze_dependencies(&graph, module_name)?;
+
+    // Output results as text with prefix grouping
+    print!("{}", dep_formatters::format_text_grouped(&result));
 
     Ok(())
 }

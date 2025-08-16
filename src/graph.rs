@@ -210,6 +210,34 @@ impl DependencyGraph {
         Ok(result)
     }
 
+    /// Gets all modules that the specified module **or any of its descendants** depend on.
+    ///
+    /// Traverses `Contains` edges downward, then collects outgoing edges from each visited node.
+    /// Returns (dependency_module, dependency_type_from_that_child). De-duplicates by dependency module name.
+    pub fn get_transitive_dependencies_with_types(
+        &self,
+        module_id: &ModuleIdentifier,
+    ) -> Result<Vec<(String, DependencyType)>> {
+        let descendant_nodes = self.descendants_via_contains(module_id, true)?;
+        let mut seen_dependencies = HashSet::new();
+        let mut result = Vec::new();
+
+        for node in descendant_nodes {
+            for edge in self.graph.edges(node) {
+                if *edge.weight() == DependencyType::Contains {
+                    continue;
+                }
+                if let Some(dependency_module) = self.graph.node_weight(edge.target()) {
+                    if seen_dependencies.insert(dependency_module.clone()) {
+                        result.push((dependency_module.clone(), edge.weight().clone()));
+                    }
+                }
+            }
+        }
+
+        Ok(result)
+    }
+
     /// Returns the total number of modules in the graph.
     pub fn module_count(&self) -> usize {
         self.graph.node_count()
