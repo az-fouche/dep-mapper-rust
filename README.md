@@ -185,7 +185,3 @@ cargo fmt
    - Self-documenting code
 4. Run tests and quality checks
 5. Submit a pull request
-
-## License
-
-[Add your license information here]

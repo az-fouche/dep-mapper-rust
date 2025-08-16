@@ -1,6 +1,6 @@
 [package]
 name = "pydep-mapper"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "CLI to parse Python code and build a dependency graph (RustPython + petgraph)."
 license = "MIT"
