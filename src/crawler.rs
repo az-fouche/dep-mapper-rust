@@ -76,7 +76,7 @@ pub fn analyze_python_directory(dir_path: &Path) -> Result<Vec<std::path::PathBu
         if path.is_file() {
             if let Some(extension) = path.extension() {
                 if extension == "py" {
-                python_files.push(path);
+                    python_files.push(path);
                 }
             }
         }

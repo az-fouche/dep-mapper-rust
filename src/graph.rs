@@ -290,7 +290,9 @@ pub mod utils {
     ///
     /// Returns the immediate parent module path, or None if the module is top-level.
     pub fn get_direct_parent_module(module_path: &str) -> Option<String> {
-        module_path.rfind('.').map(|last_dot| module_path[..last_dot].to_string())
+        module_path
+            .rfind('.')
+            .map(|last_dot| module_path[..last_dot].to_string())
     }
 
     /// Checks if `potential_ancestor` is an ancestor of `module_path` in the module hierarchy.

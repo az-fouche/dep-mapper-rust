@@ -95,7 +95,7 @@ fn process_stmt(
                     // For now, we'll extract the level by parsing the debug representation
                     // This is a limitation of the current rustpython-parser API
                     let debug_str = format!("{:?}", _level_int);
-                    
+
                     // Look for a numeric value in the debug string
                     for char in debug_str.chars() {
                         if char.is_ascii_digit() {
@@ -104,7 +104,7 @@ fn process_stmt(
                             }
                         }
                     }
-                    
+
                     // If no digit found, assume level 1 for relative imports
                     1
                 })

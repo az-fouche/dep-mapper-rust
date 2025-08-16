@@ -1,13 +1,14 @@
 use clap::{Parser, Subcommand};
 use pydep_mapper::crawler::build_directory_dependency_graph;
+use pydep_mapper::tools::agent::print_agent_documentation;
 use pydep_mapper::tools::cycles::{detect_cycles, formatters as cycle_formatters};
 use pydep_mapper::tools::dependencies::{analyze_dependencies, formatters as dep_formatters};
 use pydep_mapper::tools::external::{
     analyze_external_dependencies, formatters as external_formatters,
 };
 use pydep_mapper::tools::impact::{analyze_impact, formatters};
+use pydep_mapper::tools::instability::{analyze_instability, formatters as instability_formatters};
 use pydep_mapper::tools::pressure::{analyze_pressure, formatters as pressure_formatters};
-use pydep_mapper::tools::agent::print_agent_documentation;
 use std::path::Path;
 
 #[derive(Parser)]
@@ -44,6 +45,9 @@ enum Commands {
 
     /// Identify modules with the highest number of dependents (pressure points)
     Pressure,
+
+    /// Identify modules with the highest instability scores (most volatile)
+    Instability,
 
     /// Analyze external dependencies across the codebase with frequency analysis
     External,
@@ -95,6 +99,12 @@ fn main() {
                 eprintln!("Error running pressure analysis: {}", e);
             }
         },
+        Commands::Instability => match run_instability_analysis(dir_path) {
+            Ok(()) => {}
+            Err(e) => {
+                eprintln!("Error running instability analysis: {}", e);
+            }
+        },
         Commands::External => match run_external_analysis(dir_path) {
             Ok(()) => {}
             Err(e) => {
@@ -103,7 +113,7 @@ fn main() {
         },
         Commands::Agent => {
             print_agent_documentation();
-        },
+        }
     }
 }
 
@@ -155,6 +165,19 @@ fn run_pressure_analysis(dir_path: &Path) -> anyhow::Result<()> {
 
     // Output results as text
     print!("{}", pressure_formatters::format_text(&result));
+
+    Ok(())
+}
+
+fn run_instability_analysis(dir_path: &Path) -> anyhow::Result<()> {
+    // Build the dependency graph
+    let graph = build_directory_dependency_graph(dir_path)?;
+
+    // Run instability analysis
+    let result = analyze_instability(&graph)?;
+
+    // Output results as text
+    print!("{}", instability_formatters::format_text(&result));
 
     Ok(())
 }

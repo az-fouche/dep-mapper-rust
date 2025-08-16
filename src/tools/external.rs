@@ -336,14 +336,14 @@ mod tests {
     fn test_analyze_external_dependencies() {
         use crate::pyproject::{init_for_test, reset_for_test};
         use tempfile::TempDir;
-        
+
         // Reset parser state to ensure clean test isolation
         reset_for_test();
-        
+
         // Create a temp directory with no pyproject.toml to ensure clean test state
         let temp_dir = TempDir::new().unwrap();
         init_for_test(temp_dir.path());
-        
+
         let mut graph = DependencyGraph::new();
 
         // Add internal modules
@@ -395,8 +395,16 @@ mod tests {
         // Check that undeclared/unused analysis works correctly
         // This test has no pyproject.toml, so all used dependencies should be undeclared
         assert_eq!(result.undeclared_dependencies.len(), 2); // numpy and pandas
-        assert!(result.undeclared_dependencies.contains(&"numpy".to_string()));
-        assert!(result.undeclared_dependencies.contains(&"pandas".to_string()));
+        assert!(
+            result
+                .undeclared_dependencies
+                .contains(&"numpy".to_string())
+        );
+        assert!(
+            result
+                .undeclared_dependencies
+                .contains(&"pandas".to_string())
+        );
         assert!(result.unused_dependencies.is_empty()); // No declared deps means no unused deps
     }
 

@@ -6,6 +6,12 @@ Exploration Commands:
   pressure             → Find critical modules by dependent count
                          Example: pydep-mapper pressure
                          Output: Ranked list with counts (utils: 45 dependents)
+                         Tip: use with |head or |tail top capture top/bottom
+
+  instability          → Find unstable modules by coupling metrics
+                         Example: pydep-mapper instability
+                         Output: Ranked list with scores (api.handlers: 0.85)
+                         Tip: use with |head or |tail top capture top/bottom
 
   external             → Audit third-party package usage with frequency
                          Example: pydep-mapper external  
