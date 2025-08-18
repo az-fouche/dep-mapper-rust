@@ -1,7 +1,9 @@
 use clap::{Parser, Subcommand};
 use pydep_mapper::crawler::build_directory_dependency_graph;
 use pydep_mapper::tools::agent::print_agent_documentation;
-use pydep_mapper::tools::changeset::{analyze_changeset, formatters as changeset_formatters, ChangesetScope};
+use pydep_mapper::tools::changeset::{
+    ChangesetScope, analyze_changeset, formatters as changeset_formatters,
+};
 use pydep_mapper::tools::cycles::{detect_cycles, formatters as cycle_formatters};
 use pydep_mapper::tools::dependencies::{analyze_dependencies, formatters as dep_formatters};
 use pydep_mapper::tools::diagnose::{analyze_diagnose, formatters as diagnose_formatters};

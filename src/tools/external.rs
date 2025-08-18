@@ -4,9 +4,7 @@ use crate::pyproject;
 use anyhow::Result;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::collections::{HashMap, HashSet};
-use std::process::Command;
 use std::sync::OnceLock;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug)]
 pub struct ExternalAnalysisResult {
@@ -29,10 +27,28 @@ pub struct ExternalDependencySummary {
 }
 
 pub fn analyze_external_dependencies(graph: &DependencyGraph) -> Result<ExternalAnalysisResult> {
+    let frequency_analysis = collect_package_usage(graph)?;
+    let declared_deps = pyproject::get_declared_dependencies()?;
+    let (undeclared_dependencies, unused_dependencies) =
+        analyze_dependency_gaps(&frequency_analysis, &declared_deps)?;
+
+    let summary = ExternalDependencySummary {
+        total_used_packages: frequency_analysis.len(),
+    };
+
+    Ok(ExternalAnalysisResult {
+        frequency_analysis,
+        summary,
+        undeclared_dependencies,
+        unused_dependencies,
+    })
+}
+
+/// Collect usage statistics for external packages across internal modules
+fn collect_package_usage(graph: &DependencyGraph) -> Result<Vec<DependencyUsage>> {
     let stdlib_modules = get_python_standard_library_modules();
     let mut package_usage: HashMap<String, Vec<String>> = HashMap::new();
 
-    
     // Count usage of external packages across internal modules
     for module in graph.all_modules() {
         if module.origin == ModuleOrigin::Internal {
@@ -83,12 +99,18 @@ pub fn analyze_external_dependencies(graph: &DependencyGraph) -> Result<External
             .then_with(|| a.package_name.cmp(&b.package_name))
     });
 
-    // Get declared dependencies from pyproject.toml
-    let declared_deps_vec = pyproject::get_declared_dependencies()?;
-    let declared_deps: HashSet<String> = declared_deps_vec.iter().cloned().collect();
+    Ok(frequency_analysis)
+}
+
+/// Compare used packages against declared dependencies to find gaps
+fn analyze_dependency_gaps(
+    frequency_analysis: &[DependencyUsage],
+    declared_deps: &[String],
+) -> Result<(Vec<String>, Vec<String>)> {
+    let declared_deps_set: HashSet<&str> = declared_deps.iter().map(String::as_str).collect();
 
     // Pre-fetch all package mappings once
-    let mapping = build_complete_mapping(&declared_deps_vec)?;
+    let mapping = build_complete_mapping(declared_deps)?;
 
     // Resolve import names to package names using pre-built mapping
     let resolved_used_deps: HashSet<String> = frequency_analysis
@@ -97,25 +119,22 @@ pub fn analyze_external_dependencies(graph: &DependencyGraph) -> Result<External
         .collect();
 
     // Find undeclared dependencies (used but not declared in pyproject.toml)
-    let mut undeclared_dependencies: Vec<String> =
-        resolved_used_deps.difference(&declared_deps).cloned().collect();
+    let mut undeclared_dependencies: Vec<String> = resolved_used_deps
+        .iter()
+        .filter(|dep| !declared_deps_set.contains(dep.as_str()))
+        .cloned()
+        .collect();
     undeclared_dependencies.sort();
 
     // Find unused dependencies (declared but not used)
-    let mut unused_dependencies: Vec<String> =
-        declared_deps.difference(&resolved_used_deps).cloned().collect();
+    let mut unused_dependencies: Vec<String> = declared_deps_set
+        .iter()
+        .filter(|dep| !resolved_used_deps.contains(**dep))
+        .map(|s| s.to_string())
+        .collect();
     unused_dependencies.sort();
 
-    let summary = ExternalDependencySummary {
-        total_used_packages: frequency_analysis.len(),
-    };
-
-    Ok(ExternalAnalysisResult {
-        frequency_analysis,
-        summary,
-        undeclared_dependencies,
-        unused_dependencies,
-    })
+    Ok((undeclared_dependencies, unused_dependencies))
 }
 
 /// Cached Python standard library modules
@@ -126,7 +145,7 @@ fn get_python_standard_library_modules() -> &'static HashSet<String> {
     PYTHON_STDLIB_MODULES.get_or_init(|| {
         // Try python first (more common on Windows), then python3
         for python_cmd in ["python", "python3"] {
-            match Command::new(python_cmd)
+            match std::process::Command::new(python_cmd)
                 .args([
                     "-c",
                     "import sys; print('\\n'.join(sys.stdlib_module_names))",
@@ -147,7 +166,7 @@ fn get_python_standard_library_modules() -> &'static HashSet<String> {
                 _ => continue, // Try next command
             }
         }
-        
+
         // If both fail, return empty set and warn user
         println!("Warning: Could not detect Python stdlib modules. Install Python or ensure it's in PATH.");
         HashSet::new()
@@ -164,32 +183,44 @@ fn extract_root_package_name(module_path: &str) -> String {
         .to_string()
 }
 
-/// Package import mapping with static fallback and API caching
+/// Package import mapping with static fallback and API results
 #[derive(Debug, Clone)]
 struct PackageImportMapping {
     /// Static mappings for common packages (import_name -> package_name)
     static_mappings: HashMap<String, String>,
-    /// Cached API results with expiration (import_name -> (package_name, timestamp))
-    cached_mappings: HashMap<String, (String, u64)>,
+    /// API results cache (import_name -> package_name)
+    api_mappings: HashMap<String, String>,
 }
 
 impl PackageImportMapping {
     fn new() -> Result<Self> {
         Ok(Self {
             static_mappings: load_static_package_mappings()?,
-            cached_mappings: HashMap::new(),
+            api_mappings: HashMap::new(),
         })
     }
 
     /// Resolve import name to package name using pre-built mapping
     fn resolve_import_to_package(&self, import_name: &str) -> String {
-        // Check static mappings first
+        let normalized_name = import_name.to_lowercase();
+        
+        // Check static mappings first (case-insensitive)
+        if let Some(package_name) = self.static_mappings.get(&normalized_name) {
+            return package_name.clone();
+        }
+        
+        // Also check original case for exact matches
         if let Some(package_name) = self.static_mappings.get(import_name) {
             return package_name.clone();
         }
 
-        // Check cached API results
-        if let Some((package_name, _timestamp)) = self.cached_mappings.get(import_name) {
+        // Check API results (case-insensitive)
+        if let Some(package_name) = self.api_mappings.get(&normalized_name) {
+            return package_name.clone();
+        }
+        
+        // Also check original case for exact matches
+        if let Some(package_name) = self.api_mappings.get(import_name) {
             return package_name.clone();
         }
 
@@ -199,19 +230,19 @@ impl PackageImportMapping {
 
     /// Add a mapping from import name to package name
     fn add_mapping(&mut self, import_name: String, package_name: String) {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        self.cached_mappings.insert(import_name, (package_name, now));
+        // Store both original case and lowercase for case-insensitive lookup
+        let normalized_name = import_name.to_lowercase();
+        self.api_mappings.insert(import_name.clone(), package_name.clone());
+        if normalized_name != import_name {
+            self.api_mappings.insert(normalized_name, package_name);
+        }
     }
 }
-
 
 /// Pre-fetch API mappings for declared packages with progress bar
 fn build_complete_mapping(declared_packages: &[String]) -> Result<PackageImportMapping> {
     let mut mapping = PackageImportMapping::new()?;
-    
+
     if declared_packages.is_empty() {
         return Ok(mapping);
     }
@@ -219,10 +250,11 @@ fn build_complete_mapping(declared_packages: &[String]) -> Result<PackageImportM
     let pb = ProgressBar::new(declared_packages.len() as u64);
     pb.set_style(
         ProgressStyle::default_bar()
-            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len}")
+            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos:>7}/{len:7} {msg}")
             .unwrap()
-            .progress_chars("#>-"),
+            .progress_chars("##-"),
     );
+    pb.set_message("Fetching package mappings");
 
     for package_name in declared_packages {
         if let Ok(import_names) = query_pypi_for_imports(package_name) {
@@ -230,7 +262,7 @@ fn build_complete_mapping(declared_packages: &[String]) -> Result<PackageImportM
                 mapping.add_mapping(import_name, package_name.clone());
             }
         }
-        
+
         pb.inc(1);
     }
 
@@ -268,36 +300,54 @@ struct PyPIInfo {
     top_level: Vec<String>,
 }
 
-/// Queries PyPI API to get top-level modules for a package
+/// Queries PyPI API to get top-level modules for a package with retry logic
 fn query_pypi_for_imports(package_name: &str) -> Result<Vec<String>> {
-    use std::process::Command;
+    const MAX_RETRIES: u32 = 2;
 
-    // Use curl to query PyPI API with timeout
-    let output = Command::new("curl")
-        .args(&[
-            "-s", // silent
-            "--max-time", "5", // 5 second timeout
-            &format!("https://pypi.org/pypi/{}/json", package_name),
-        ])
-        .output();
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()?;
 
-    match output {
-        Ok(output) if output.status.success() => {
-            let json_str = String::from_utf8_lossy(&output.stdout);
-            let response: PyPIResponse = serde_json::from_str(&json_str)?;
-            
-            if !response.info.top_level.is_empty() {
-                Ok(response.info.top_level)
-            } else {
-                // Fallback: try to infer from package name (replace hyphens with underscores)
-                Ok(vec![package_name.replace('-', "_")])
+    let url = format!("https://pypi.org/pypi/{}/json", package_name);
+
+    for attempt in 0..=MAX_RETRIES {
+        match client.get(&url).send() {
+            Ok(response) if response.status().is_success() => {
+                match response.json::<PyPIResponse>() {
+                    Ok(pypi_response) => {
+                        if !pypi_response.info.top_level.is_empty() {
+                            return Ok(pypi_response.info.top_level);
+                        } else {
+                            // No top_level in response, use fallback
+                            return Ok(vec![package_name.replace('-', "_")]);
+                        }
+                    }
+                    Err(_) => {
+                        if attempt == MAX_RETRIES {
+                            // JSON parsing failed on final attempt, use fallback
+                            return Ok(vec![package_name.replace('-', "_")]);
+                        }
+                        // Retry on JSON parsing error
+                    }
+                }
+            }
+            Ok(response) if response.status().is_client_error() => {
+                // 4xx errors shouldn't be retried
+                return Ok(vec![package_name.replace('-', "_")]);
+            }
+            _ => {
+                if attempt == MAX_RETRIES {
+                    // Network request failed on final attempt, use fallback
+                    return Ok(vec![package_name.replace('-', "_")]);
+                }
+                // Retry on network errors
+                std::thread::sleep(std::time::Duration::from_millis(100 * (attempt + 1) as u64));
             }
         }
-        _ => {
-            // API failed, return fallback based on package name
-            Ok(vec![package_name.replace('-', "_")])
-        }
     }
+
+    // Should never reach here due to returns above, but provide fallback
+    Ok(vec![package_name.replace('-', "_")])
 }
 
 pub mod formatters {
@@ -619,7 +669,7 @@ pytest = "^7.3.1"
         assert!(
             result
                 .undeclared_dependencies
-                .contains(&"sklearn".to_string())
+                .contains(&"scikit-learn".to_string())
         );
         assert!(
             !result
