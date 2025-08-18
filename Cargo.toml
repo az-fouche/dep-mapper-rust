@@ -1,13 +1,13 @@
 [package]
 name = "pydep-mapper"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2024"
-description = "CLI to parse Python code and build a dependency graph (RustPython + petgraph)."
+description = "Fast Rust CLI for analyzing Python dependencies with external package declarations support."
 license = "MIT"
 readme = "README.md"
 repository = "https://github.com/az-fouche/dep-mapper-rust/"
 homepage = "https://github.com/az-fouche/dep-mapper-rust/"
-keywords = ["python", "dependencies", "graph", "cli", "rustpython"]
+keywords = ["python", "dependencies", "analysis", "cli", "external"]
 categories = ["command-line-utilities", "parsing", "development-tools"]
 rust-version = "1.89.0"
 
