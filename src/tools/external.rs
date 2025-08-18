@@ -2,9 +2,11 @@ use crate::graph::DependencyGraph;
 use crate::imports::ModuleOrigin;
 use crate::pyproject;
 use anyhow::Result;
+use indicatif::{ProgressBar, ProgressStyle};
 use std::collections::{HashMap, HashSet};
 use std::process::Command;
 use std::sync::OnceLock;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug)]
 pub struct ExternalAnalysisResult {
@@ -30,6 +32,7 @@ pub fn analyze_external_dependencies(graph: &DependencyGraph) -> Result<External
     let stdlib_modules = get_python_standard_library_modules();
     let mut package_usage: HashMap<String, Vec<String>> = HashMap::new();
 
+    
     // Count usage of external packages across internal modules
     for module in graph.all_modules() {
         if module.origin == ModuleOrigin::Internal {
@@ -81,24 +84,26 @@ pub fn analyze_external_dependencies(graph: &DependencyGraph) -> Result<External
     });
 
     // Get declared dependencies from pyproject.toml
-    let declared_deps: HashSet<String> = pyproject::get_declared_dependencies()?
-        .into_iter()
-        .collect();
+    let declared_deps_vec = pyproject::get_declared_dependencies()?;
+    let declared_deps: HashSet<String> = declared_deps_vec.iter().cloned().collect();
 
-    // Get actually used dependencies
-    let used_deps: HashSet<String> = frequency_analysis
+    // Pre-fetch all package mappings once
+    let mapping = build_complete_mapping(&declared_deps_vec)?;
+
+    // Resolve import names to package names using pre-built mapping
+    let resolved_used_deps: HashSet<String> = frequency_analysis
         .iter()
-        .map(|dep| dep.package_name.clone())
+        .map(|dep| resolve_import_to_package_name(&mapping, &dep.package_name))
         .collect();
 
     // Find undeclared dependencies (used but not declared in pyproject.toml)
     let mut undeclared_dependencies: Vec<String> =
-        used_deps.difference(&declared_deps).cloned().collect();
+        resolved_used_deps.difference(&declared_deps).cloned().collect();
     undeclared_dependencies.sort();
 
     // Find unused dependencies (declared but not used)
     let mut unused_dependencies: Vec<String> =
-        declared_deps.difference(&used_deps).cloned().collect();
+        declared_deps.difference(&resolved_used_deps).cloned().collect();
     unused_dependencies.sort();
 
     let summary = ExternalDependencySummary {
@@ -119,75 +124,33 @@ static PYTHON_STDLIB_MODULES: OnceLock<HashSet<String>> = OnceLock::new();
 /// Get Python standard library modules by calling Python subprocess
 fn get_python_standard_library_modules() -> &'static HashSet<String> {
     PYTHON_STDLIB_MODULES.get_or_init(|| {
-        // Try to call Python to get stdlib modules
-        match Command::new("python3")
-            .args([
-                "-c",
-                "import sys; print('\\n'.join(sys.stdlib_module_names))",
-            ])
-            .output()
-        {
-            Ok(output) if output.status.success() => {
-                let result: HashSet<String> = String::from_utf8_lossy(&output.stdout)
-                    .lines()
-                    .map(|line| line.trim().to_string())
-                    .filter(|line| !line.is_empty())
-                    .collect();
+        // Try python first (more common on Windows), then python3
+        for python_cmd in ["python", "python3"] {
+            match Command::new(python_cmd)
+                .args([
+                    "-c",
+                    "import sys; print('\\n'.join(sys.stdlib_module_names))",
+                ])
+                .output()
+            {
+                Ok(output) if output.status.success() => {
+                    let result: HashSet<String> = String::from_utf8_lossy(&output.stdout)
+                        .lines()
+                        .map(|line| line.trim().to_string())
+                        .filter(|line| !line.is_empty())
+                        .collect();
 
-                // Debug output for tests
-                #[cfg(test)]
-                eprintln!("Python3 call succeeded, got {} modules", result.len());
-
-                result
-            }
-            Ok(_output) => {
-                #[cfg(test)]
-                eprintln!("Python3 call failed with exit code: {:?}", _output.status);
-
-                // Fallback: try python instead of python3
-                match Command::new("python")
-                    .args([
-                        "-c",
-                        "import sys; print('\\n'.join(sys.stdlib_module_names))",
-                    ])
-                    .output()
-                {
-                    Ok(output) if output.status.success() => {
-                        let result: HashSet<String> = String::from_utf8_lossy(&output.stdout)
-                            .lines()
-                            .map(|line| line.trim().to_string())
-                            .filter(|line| !line.is_empty())
-                            .collect();
-
-                        #[cfg(test)]
-                        eprintln!("Python call succeeded, got {} modules", result.len());
-
-                        result
-                    }
-                    Ok(_output) => {
-                        #[cfg(test)]
-                        eprintln!("Python call failed with exit code: {:?}", _output.status);
-
-                        // If Python call fails, return empty set
-                        HashSet::new()
-                    }
-                    Err(_e2) => {
-                        #[cfg(test)]
-                        eprintln!("Python call also failed: {}", _e2);
-
-                        // If Python call fails, return empty set
-                        HashSet::new()
+                    if !result.is_empty() {
+                        return result;
                     }
                 }
-            }
-            Err(_e) => {
-                #[cfg(test)]
-                eprintln!("Python3 command failed: {}", _e);
-
-                // If Python call fails, return empty set
-                HashSet::new()
+                _ => continue, // Try next command
             }
         }
+        
+        // If both fail, return empty set and warn user
+        println!("Warning: Could not detect Python stdlib modules. Install Python or ensure it's in PATH.");
+        HashSet::new()
     })
 }
 
@@ -199,6 +162,142 @@ fn extract_root_package_name(module_path: &str) -> String {
         .next()
         .unwrap_or(module_path)
         .to_string()
+}
+
+/// Package import mapping with static fallback and API caching
+#[derive(Debug, Clone)]
+struct PackageImportMapping {
+    /// Static mappings for common packages (import_name -> package_name)
+    static_mappings: HashMap<String, String>,
+    /// Cached API results with expiration (import_name -> (package_name, timestamp))
+    cached_mappings: HashMap<String, (String, u64)>,
+}
+
+impl PackageImportMapping {
+    fn new() -> Result<Self> {
+        Ok(Self {
+            static_mappings: load_static_package_mappings()?,
+            cached_mappings: HashMap::new(),
+        })
+    }
+
+    /// Resolve import name to package name using pre-built mapping
+    fn resolve_import_to_package(&self, import_name: &str) -> String {
+        // Check static mappings first
+        if let Some(package_name) = self.static_mappings.get(import_name) {
+            return package_name.clone();
+        }
+
+        // Check cached API results
+        if let Some((package_name, _timestamp)) = self.cached_mappings.get(import_name) {
+            return package_name.clone();
+        }
+
+        // Fall back to original import name if no mapping found
+        import_name.to_string()
+    }
+
+    /// Add a mapping from import name to package name
+    fn add_mapping(&mut self, import_name: String, package_name: String) {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        self.cached_mappings.insert(import_name, (package_name, now));
+    }
+}
+
+
+/// Pre-fetch API mappings for declared packages with progress bar
+fn build_complete_mapping(declared_packages: &[String]) -> Result<PackageImportMapping> {
+    let mut mapping = PackageImportMapping::new()?;
+    
+    if declared_packages.is_empty() {
+        return Ok(mapping);
+    }
+
+    let pb = ProgressBar::new(declared_packages.len() as u64);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len}")
+            .unwrap()
+            .progress_chars("#>-"),
+    );
+
+    for package_name in declared_packages {
+        if let Ok(import_names) = query_pypi_for_imports(package_name) {
+            for import_name in import_names {
+                mapping.add_mapping(import_name, package_name.clone());
+            }
+        }
+        
+        pb.inc(1);
+    }
+
+    pb.finish_and_clear();
+    Ok(mapping)
+}
+
+/// Main resolver function to convert import name to package name
+fn resolve_import_to_package_name(mapping: &PackageImportMapping, import_name: &str) -> String {
+    mapping.resolve_import_to_package(import_name)
+}
+
+/// JSON structure for package mappings file
+#[derive(serde::Deserialize)]
+struct PackageMappingsJson {
+    import_to_package: HashMap<String, String>,
+}
+
+/// Loads static mapping table from JSON file
+fn load_static_package_mappings() -> Result<HashMap<String, String>> {
+    let json_content = include_str!("package_mappings.json");
+    let mappings: PackageMappingsJson = serde_json::from_str(json_content)?;
+    Ok(mappings.import_to_package)
+}
+
+/// PyPI API response structure
+#[derive(serde::Deserialize)]
+struct PyPIResponse {
+    info: PyPIInfo,
+}
+
+#[derive(serde::Deserialize)]
+struct PyPIInfo {
+    #[serde(default)]
+    top_level: Vec<String>,
+}
+
+/// Queries PyPI API to get top-level modules for a package
+fn query_pypi_for_imports(package_name: &str) -> Result<Vec<String>> {
+    use std::process::Command;
+
+    // Use curl to query PyPI API with timeout
+    let output = Command::new("curl")
+        .args(&[
+            "-s", // silent
+            "--max-time", "5", // 5 second timeout
+            &format!("https://pypi.org/pypi/{}/json", package_name),
+        ])
+        .output();
+
+    match output {
+        Ok(output) if output.status.success() => {
+            let json_str = String::from_utf8_lossy(&output.stdout);
+            let response: PyPIResponse = serde_json::from_str(&json_str)?;
+            
+            if !response.info.top_level.is_empty() {
+                Ok(response.info.top_level)
+            } else {
+                // Fallback: try to infer from package name (replace hyphens with underscores)
+                Ok(vec![package_name.replace('-', "_")])
+            }
+        }
+        _ => {
+            // API failed, return fallback based on package name
+            Ok(vec![package_name.replace('-', "_")])
+        }
+    }
 }
 
 pub mod formatters {

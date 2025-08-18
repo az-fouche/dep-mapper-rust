@@ -1,0 +1,23 @@
+{
+  "import_to_package": {
+    "sklearn": "scikit-learn",
+    "umap": "umap-learn",
+    "cv2": "opencv-python",
+    "PIL": "pillow",
+    "skimage": "scikit-image",
+    "yaml": "pyyaml",
+    "serial": "pyserial",
+    "dateutil": "python-dateutil",
+    "dotenv": "python-dotenv",
+    "requests_oauthlib": "requests-oauthlib",
+    "google_auth": "google-auth",
+    "google_auth_oauthlib": "google-auth-oauthlib",
+    "pytest_bdd": "pytest-bdd",
+    "pytest_mock": "pytest-mock",
+    "pytest_cov": "pytest-cov",
+    "dash_bootstrap_components": "dash-bootstrap-components",
+    "dash_mantine_components": "dash-mantine-components",
+    "dataclasses_json": "dataclasses-json",
+    "sentence_transformers": "sentence-transformers"
+  }
+}
