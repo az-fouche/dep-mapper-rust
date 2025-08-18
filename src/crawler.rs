@@ -434,9 +434,9 @@ import numpy as np
             .collect();
 
         assert!(filenames.contains(&"main.py".to_string()));
-        assert!(filenames.contains(&"package/module.py".to_string()));
-        assert!(filenames.contains(&"package/__init__.py".to_string()));
-        assert!(filenames.contains(&"package/subpackage/deep.py".to_string()));
+        assert!(filenames.contains(&PathBuf::from("package").join("module.py").to_string_lossy().to_string()));
+        assert!(filenames.contains(&PathBuf::from("package").join("__init__.py").to_string_lossy().to_string()));
+        assert!(filenames.contains(&PathBuf::from("package").join("subpackage").join("deep.py").to_string_lossy().to_string()));
     }
 
     #[test]
