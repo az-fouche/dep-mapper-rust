@@ -175,6 +175,41 @@ impl PyProjectParser {
         dependencies.dedup();
         Ok(dependencies)
     }
+
+    pub fn get_used_externals(&self) -> Result<Vec<String>> {
+        let used_externals_path = self.project_root.join(".used-externals.txt");
+
+        if !used_externals_path.exists() {
+            return Ok(Vec::new());
+        }
+
+        let content = std::fs::read_to_string(&used_externals_path)?;
+        let mut externals = Vec::new();
+
+        for line in content.lines() {
+            let line = line.trim();
+            
+            // Skip empty lines and comments
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            
+            // Extract package name (handle inline comments)
+            let package_name = if let Some(comment_pos) = line.find('#') {
+                line[..comment_pos].trim()
+            } else {
+                line
+            };
+            
+            if !package_name.is_empty() {
+                externals.push(normalize_dependency_name(package_name));
+            }
+        }
+
+        externals.sort();
+        externals.dedup();
+        Ok(externals)
+    }
 }
 
 /// Normalizes dependency name from complex dependency specifications
@@ -226,6 +261,16 @@ pub fn get_declared_dependencies() -> Result<Vec<String>> {
     PARSER.with(|parser| {
         if let Some(p) = parser.borrow().as_ref() {
             p.get_declared_dependencies()
+        } else {
+            Ok(Vec::new())
+        }
+    })
+}
+
+pub fn get_used_externals() -> Result<Vec<String>> {
+    PARSER.with(|parser| {
+        if let Some(p) = parser.borrow().as_ref() {
+            p.get_used_externals()
         } else {
             Ok(Vec::new())
         }
@@ -411,5 +456,96 @@ matplotlib = "^3.8.2"
 
         // Should be sorted and deduplicated
         assert_eq!(deps.len(), 6);
+    }
+
+    #[test]
+    fn test_get_used_externals_empty_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let parser = PyProjectParser::new(temp_dir.path());
+        
+        // No .used-externals.txt file should return empty vec
+        let externals = parser.get_used_externals().unwrap();
+        assert!(externals.is_empty());
+    }
+
+    #[test]
+    fn test_get_used_externals_with_content() {
+        let temp_dir = TempDir::new().unwrap();
+        let used_externals_content = r#"# Build tools
+setuptools
+wheel
+
+# Database drivers
+psycopg2-binary
+SQLAlchemy  # inline comment
+
+# Testing frameworks
+pytest-asyncio
+
+# Empty lines and comments should be ignored
+
+Django_REST_Framework  # Should be normalized to django-rest-framework
+"#;
+        fs::write(temp_dir.path().join(".used-externals.txt"), used_externals_content).unwrap();
+
+        let parser = PyProjectParser::new(temp_dir.path());
+        let externals = parser.get_used_externals().unwrap();
+
+        assert_eq!(externals.len(), 6);
+        assert!(externals.contains(&"setuptools".to_string()));
+        assert!(externals.contains(&"wheel".to_string()));
+        assert!(externals.contains(&"psycopg2-binary".to_string()));
+        assert!(externals.contains(&"sqlalchemy".to_string()));
+        assert!(externals.contains(&"pytest-asyncio".to_string()));
+        assert!(externals.contains(&"django-rest-framework".to_string()));
+        
+        // Should be sorted
+        assert_eq!(externals[0], "django-rest-framework");
+        assert_eq!(externals[1], "psycopg2-binary");
+    }
+
+    #[test]
+    fn test_get_used_externals_comments_and_whitespace() {
+        let temp_dir = TempDir::new().unwrap();
+        let used_externals_content = r#"
+# This is a comment at the start
+    
+numpy    # Trailing comment with spaces
+   pandas   
+# Another comment
+redis
+
+    matplotlib    # Comment at end
+
+"#;
+        fs::write(temp_dir.path().join(".used-externals.txt"), used_externals_content).unwrap();
+
+        let parser = PyProjectParser::new(temp_dir.path());
+        let externals = parser.get_used_externals().unwrap();
+
+        assert_eq!(externals.len(), 4);
+        assert!(externals.contains(&"numpy".to_string()));
+        assert!(externals.contains(&"pandas".to_string()));
+        assert!(externals.contains(&"redis".to_string()));
+        assert!(externals.contains(&"matplotlib".to_string()));
+    }
+
+    #[test]
+    fn test_get_used_externals_deduplication() {
+        let temp_dir = TempDir::new().unwrap();
+        let used_externals_content = r#"numpy
+NumPy  # Should normalize to same as above
+NUMPY  # Should normalize to same as above
+requests
+"#;
+        fs::write(temp_dir.path().join(".used-externals.txt"), used_externals_content).unwrap();
+
+        let parser = PyProjectParser::new(temp_dir.path());
+        let externals = parser.get_used_externals().unwrap();
+
+        // Should have 2 unique packages after normalization and deduplication
+        assert_eq!(externals.len(), 2);
+        assert!(externals.contains(&"numpy".to_string()));
+        assert!(externals.contains(&"requests".to_string()));
     }
 }

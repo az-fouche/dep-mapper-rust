@@ -65,7 +65,7 @@ cargo run -- dependencies json
    - **Dependencies**: Show what a module depends on
    - **Cycle Detection**: Identify circular dependencies using DFS algorithms
    - **Pressure Points**: Find modules with highest number of dependents
-   - **External Dependencies**: Audit external package usage with frequency analysis
+   - **External Dependencies**: Audit external package usage with frequency analysis and manual declarations via `.used-externals.txt`
 
 5. **Common Utilities** (`tools/common.rs`)
    - Shared filtering functions (`filter_hierarchical`, `filter_by_type`)
@@ -140,6 +140,39 @@ When bugs occur, follow this process:
 - AST-based parsing via `rustpython-parser`
 - Handles both internal module dependencies and external package imports
 - Preserves module origin information (Internal vs External)
+
+## External Dependencies Features
+
+### Manual Package Declarations
+The external dependencies analysis supports an optional `.used-externals.txt` file located in the same directory as `pyproject.toml`. This allows declaring packages that should be considered "used" even if they're not directly imported in the code.
+
+**File Format:**
+- One package name per line
+- Comments supported with `#` (full-line or inline)
+- Empty lines ignored
+- Package names automatically normalized to PyPI conventions (lowercase with hyphens)
+
+**Example `.used-externals.txt`:**
+```txt
+# Build and deployment tools
+setuptools
+wheel
+docker
+
+# Development tools not directly imported
+ruff  # Code formatter
+mypy  # Type checker
+
+# Runtime dependencies used via configuration
+redis
+nginx  # Used in deployment
+```
+
+**Integration:**
+- Packages from `.used-externals.txt` are merged with code-detected packages
+- Manual declarations show as `(declared)` in the used_by_modules list
+- Summary shows count of manually declared externals
+- Feature works silently when file doesn't exist (fully backward compatible)
 
 ## Common Development Tasks
 

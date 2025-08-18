@@ -12,6 +12,7 @@ pub struct ExternalAnalysisResult {
     pub summary: ExternalDependencySummary,
     pub undeclared_dependencies: Vec<String>,
     pub unused_dependencies: Vec<String>,
+    pub declared_externals_count: usize,
 }
 
 #[derive(Debug)]
@@ -27,7 +28,8 @@ pub struct ExternalDependencySummary {
 }
 
 pub fn analyze_external_dependencies(graph: &DependencyGraph) -> Result<ExternalAnalysisResult> {
-    let frequency_analysis = collect_package_usage(graph)?;
+    let used_externals = pyproject::get_used_externals()?;
+    let frequency_analysis = collect_package_usage(graph, &used_externals)?;
     let declared_deps = pyproject::get_declared_dependencies()?;
     let (undeclared_dependencies, unused_dependencies) =
         analyze_dependency_gaps(&frequency_analysis, &declared_deps)?;
@@ -41,13 +43,25 @@ pub fn analyze_external_dependencies(graph: &DependencyGraph) -> Result<External
         summary,
         undeclared_dependencies,
         unused_dependencies,
+        declared_externals_count: used_externals.len(),
     })
 }
 
 /// Collect usage statistics for external packages across internal modules
-fn collect_package_usage(graph: &DependencyGraph) -> Result<Vec<DependencyUsage>> {
+fn collect_package_usage(graph: &DependencyGraph, used_externals: &[String]) -> Result<Vec<DependencyUsage>> {
     let stdlib_modules = get_python_standard_library_modules();
     let mut package_usage: HashMap<String, Vec<String>> = HashMap::new();
+
+    // Add manually declared external packages from .used-externals.txt
+    for package_name in used_externals {
+        // Skip Python standard library modules
+        if !stdlib_modules.contains(package_name) {
+            package_usage
+                .entry(package_name.clone())
+                .or_default()
+                .push("(declared)".to_string());
+        }
+    }
 
     // Count usage of external packages across internal modules
     for module in graph.all_modules() {
@@ -419,6 +433,13 @@ pub mod formatters {
             "Total external packages used: {}\n",
             result.summary.total_used_packages
         ));
+        
+        if result.declared_externals_count > 0 {
+            output.push_str(&format!(
+                "Manually declared externals: {}\n",
+                result.declared_externals_count
+            ));
+        }
 
         // Add undeclared dependencies section
         if !result.undeclared_dependencies.is_empty() {
@@ -599,6 +620,96 @@ mod tests {
 
         // Check that the basic filtering works (stdlib modules excluded)
         // The diff analysis fields should exist (but values depend on global state)
+    }
+
+    #[test]
+    fn test_used_externals_integration() {
+        use crate::pyproject::{init_for_test, reset_for_test};
+        use std::fs;
+        use tempfile::TempDir;
+
+        // Reset parser state to ensure clean test isolation
+        reset_for_test();
+
+        let temp_dir = TempDir::new().unwrap();
+
+        // Create .used-externals.txt with some packages
+        let used_externals_content = r#"# Manually declared packages
+setuptools
+wheel
+redis
+tensorflow  # This one won't be used in code
+"#;
+        fs::write(temp_dir.path().join(".used-externals.txt"), used_externals_content).unwrap();
+
+        // Initialize pyproject parser with temp directory
+        init_for_test(temp_dir.path());
+
+        let mut graph = DependencyGraph::new();
+
+        // Add internal module
+        let internal1 = create_test_module_id("myapp.main", ModuleOrigin::Internal);
+
+        // Add external modules - some declared in .used-externals.txt, some not
+        let numpy_id = create_test_module_id("numpy", ModuleOrigin::External); // Code-detected only
+        let redis_id = create_test_module_id("redis", ModuleOrigin::External); // Both declared and code-detected
+        let setuptools_id = create_test_module_id("setuptools", ModuleOrigin::External); // Declared only (no usage)
+
+        graph.add_module(internal1.clone());
+        graph.add_module(numpy_id.clone());
+        graph.add_module(redis_id.clone());
+        graph.add_module(setuptools_id.clone()); // Add to graph but don't use
+
+        // Add dependencies: use numpy and redis in code
+        graph
+            .add_dependency(&internal1, &numpy_id, DependencyType::Imports)
+            .unwrap();
+        graph
+            .add_dependency(&internal1, &redis_id, DependencyType::Imports)
+            .unwrap();
+
+        let result = analyze_external_dependencies(&graph).unwrap();
+
+        // Should find 5 used packages: 4 from .used-externals.txt + 1 from code (numpy)
+        assert_eq!(result.summary.total_used_packages, 5);
+        assert_eq!(result.declared_externals_count, 4); // setuptools, wheel, redis, tensorflow
+
+        // Find packages in frequency analysis
+        let package_names: Vec<&str> = result
+            .frequency_analysis
+            .iter()
+            .map(|dep| dep.package_name.as_str())
+            .collect();
+
+        assert!(package_names.contains(&"numpy")); // Code-detected only
+        assert!(package_names.contains(&"redis")); // Both declared and code-detected
+        assert!(package_names.contains(&"setuptools")); // Declared only
+        assert!(package_names.contains(&"wheel")); // Declared only
+        assert!(package_names.contains(&"tensorflow")); // Declared only
+
+        // Check usage counts and sources
+        let redis_usage = result
+            .frequency_analysis
+            .iter()
+            .find(|dep| dep.package_name == "redis")
+            .unwrap();
+        assert_eq!(redis_usage.usage_count, 2); // Both "(declared)" and actual module usage
+
+        let setuptools_usage = result
+            .frequency_analysis
+            .iter()
+            .find(|dep| dep.package_name == "setuptools")
+            .unwrap();
+        assert_eq!(setuptools_usage.usage_count, 1); // Only "(declared)"
+        assert!(setuptools_usage.used_by_modules.contains(&"(declared)".to_string()));
+
+        let numpy_usage = result
+            .frequency_analysis
+            .iter()
+            .find(|dep| dep.package_name == "numpy")
+            .unwrap();
+        assert_eq!(numpy_usage.usage_count, 1); // Only actual code usage
+        assert!(!numpy_usage.used_by_modules.contains(&"(declared)".to_string()));
     }
 
     #[test]

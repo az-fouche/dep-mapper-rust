@@ -9,7 +9,7 @@ A fast Rust CLI tool for analyzing Python codebases and mapping module dependenc
 - **Dependencies** - Show all dependencies of a specific module
 - **Circular Dependencies** - Detect and report dependency cycles
 - **Dead Code Detection** - Find orphaned modules with no dependents
-- **External Dependencies** - Audit external package usage across the codebase
+- **External Dependencies** - Audit external package usage across the codebase with manual package declarations
 - **Pressure Points** - Identify modules with the highest number of dependents
 - **Metrics** - Display overall codebase health indicators
 
@@ -60,7 +60,7 @@ pydep-mapper dependencies src.payments.processor
 # Find all circular dependencies
 pydep-mapper cycles
 
-# Analyze external dependencies
+# Analyze external dependencies (includes packages from .used-externals.txt if present)
 pydep-mapper external
 
 # Show modules with most dependencies (pressure points), can be combined with grep or head
@@ -97,6 +97,43 @@ pydep-mapper dependencies src.payments.processor
 # - src.utils.validation (Internal - Imports)
 # Total: 3 dependencies (1 external, 2 internal)
 ```
+
+### External Dependencies with Manual Declarations
+```bash
+# Analyze external dependencies
+pydep-mapper external
+
+# Output includes both code-detected and manually declared packages:
+# External Dependencies Analysis:
+# 
+# === Summary ===
+# Total external packages used: 127
+# Manually declared externals: 10
+```
+
+**Manual Package Declarations**: Create a `.used-externals.txt` file in the same directory as your `pyproject.toml` to declare additional packages that should be considered "used" even if not directly imported in code:
+
+```txt
+# .used-externals.txt
+# Build tools
+setuptools
+wheel
+
+# Runtime dependencies not directly imported
+redis  # Used via config
+docker # Used in deployment
+
+# Development tools
+ruff
+mypy  # Type checker
+```
+
+Features of `.used-externals.txt`:
+- One package name per line
+- Comments with `#` (full-line or inline)
+- Automatic normalization to PyPI naming conventions
+- Merges with code-detected packages
+- Optional - works silently when file doesn't exist
 
 ### Architecture Health
 ```bash
